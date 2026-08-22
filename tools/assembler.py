@@ -5,11 +5,16 @@
 Usage:
     python assembler.py input.asm -o output.bin
     python assembler.py input.asm -o output.txt --format text
+    python assembler.py input.asm -o output.txt --format addrtext
 
 Text output:
     - one 16-bit word per line
     - each word is displayed as 8-bit groups separated by a space
     - e.g. 00000100 10001000
+
+AddrText output:
+    - includes word address (hex) before each word
+    - e.g. 0000: 00000100 10001000
 """
 
 import argparse
@@ -402,6 +407,14 @@ def write_text(path: Path, words):
             f.write(bits[:8] + " " + bits[8:] + "\n")
 
 
+def write_addr_text(path: Path, words):
+    """Write text output with address prefix, e.g. '0000: 00000100 10001000'."""
+    with path.open("w", encoding="ascii") as f:
+        for addr, word in enumerate(words):
+            bits = f"{word:016b}"
+            f.write(f"{addr:04X}: {bits[:8]} {bits[8:]}\n")
+
+
 def write_hex(path: Path, words):
     with path.open("w", encoding="ascii") as f:
         for word in words:
@@ -432,7 +445,7 @@ def main():
                         help="output file")
     parser.add_argument(
         "--format",
-        choices=("bin", "text", "hex"),
+        choices=("bin", "text", "hex", "addrtext"),
         default="bin",
         help="output format (default: bin)",
     )
@@ -451,6 +464,8 @@ def main():
             write_binary(args.output, words)
         elif args.format == "text":
             write_text(args.output, words)
+        elif args.format == "addrtext":
+            write_addr_text(args.output, words)
         else:
             write_hex(args.output, words)
 
