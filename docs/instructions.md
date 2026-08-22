@@ -8,7 +8,16 @@
 MOV source, destination
 ````
 
-将 `source` 的值复制到 `destination`，其中，`source`为任意寄存器或者任意16位常数， `destination` 为任意寄存器。
+将 `source` 的值复制到 `destination`，其中，`source` 和 `destination` 为任意寄存器。
+
+
+### LDI
+
+```text
+LDI immediate, destination
+````
+
+将 `immediate` 的值复制到 `destination`，其中，`source` 为任意16位常数， `destination` 为任意寄存器。
 
 ### RED
 

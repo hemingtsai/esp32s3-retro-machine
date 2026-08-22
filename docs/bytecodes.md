@@ -185,7 +185,7 @@ R1 ← R0
 ## LDI
 
 ```text
-LDI destination, immediate
+LDI immediate, destination
 ```
 
 使用 I-Type。
@@ -195,7 +195,7 @@ LDI destination, immediate
 例如：
 
 ```text
-LDI R0, 1234h
+LDI 1234h, r0
 ```
 
 编码为两个 16 bit words：
