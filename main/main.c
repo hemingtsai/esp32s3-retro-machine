@@ -46,7 +46,7 @@ void app_main(void)
 
   esp_console_dev_uart_config_t uart_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
 
-  esp_console_repl_handle_t repl;
+  esp_console_repl_t *repl = NULL;
   ESP_ERROR_CHECK(esp_console_new_repl_uart(&uart_config, &repl_config, &repl));
 
   for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++)
