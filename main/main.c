@@ -1,6 +1,10 @@
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
+
+#define MEMORY_WORD_COUNT 0x10000
 
 enum Register
 {
@@ -93,6 +97,46 @@ struct Instruction
 static uint16_t fetch(const uint16_t memory[], uint16_t pc)
 {
   return memory[pc];
+}
+
+enum Fault
+{
+  FAULT_NONE,
+  FAULT_DIV_ZERO
+};
+
+struct Machine
+{
+  uint16_t memory[MEMORY_WORD_COUNT];
+  uint16_t reg[16];
+  enum Flag
+  {
+    FLAG_Z = 1 << 0,
+    FLAG_N = 1 << 1,
+    FLAG_C = 1 << 2,
+    FLAG_V = 1 << 3
+  } flags;
+  bool halted;
+  enum Fault fault;
+};
+
+void reset_machine(struct Machine *machine)
+{
+  memset(machine->memory, 0, sizeof(machine->memory));
+  memset(machine->reg, 0, sizeof(machine->reg));
+  machine->flags = (enum Flag)0;
+  machine->halted = false;
+  machine->fault = FAULT_NONE;
+}
+
+uint16_t read_register(const struct Machine *machine, enum Register reg)
+{
+  return machine->reg[reg];
+}
+
+void write_register(struct Machine *machine, enum Register reg, uint16_t value)
+{
+  machine->reg[reg] = value;
 }
 
 size_t decode_instruction(const uint16_t memory[], uint16_t pc, struct Instruction *instruction)
