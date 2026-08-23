@@ -217,6 +217,9 @@ static void execute_data(struct Machine *machine, const struct Instruction *inst
   }
 }
 
+static void execute_data(struct Machine *machine, const struct Instruction *instruction);
+static void execute_alu(struct Machine *machine, const struct Instruction *instruction);
+
 void execute(struct Machine *machine, const struct Instruction *instruction)
 {
   switch (instruction->opcode)
@@ -231,6 +234,20 @@ void execute(struct Machine *machine, const struct Instruction *instruction)
   case MPRV:
     execute_data(machine, instruction);
     break;
+  case ADD:
+  case SUB:
+  case DIV:
+  case INC:
+  case DEC:
+  case AND:
+  case OR:
+  case XOR:
+  case NOT:
+  case SHL:
+  case SHR:
+  case CMP:
+    execute_alu(machine, instruction);
+    break;
   case NOP:
     break;
   case HLT:
@@ -239,6 +256,104 @@ void execute(struct Machine *machine, const struct Instruction *instruction)
   default:
     break;
   }
+}
+
+static uint16_t alu_add(struct Machine *machine, uint16_t a, uint16_t b)
+{
+  uint32_t sum = (uint32_t)a + b;
+  uint16_t result = (uint16_t)sum;
+
+  machine->flags = (enum Flag)(machine->flags & ~(FLAG_C | FLAG_V));
+  if (sum > 0xFFFF)
+    machine->flags = (enum Flag)(machine->flags | FLAG_C);
+  if ((uint16_t)(~(a ^ b) & (a ^ result)) & 0x8000)
+    machine->flags = (enum Flag)(machine->flags | FLAG_V);
+  return result;
+}
+
+static uint16_t alu_sub(struct Machine *machine, uint16_t a, uint16_t b)
+{
+  uint32_t difference = (uint32_t)a - b;
+  uint16_t result = (uint16_t)difference;
+
+  machine->flags = (enum Flag)(machine->flags & ~(FLAG_C | FLAG_V));
+  if (a < b)
+    machine->flags = (enum Flag)(machine->flags | FLAG_C);
+  if ((uint16_t)((a ^ b) & (a ^ result)) & 0x8000)
+    machine->flags = (enum Flag)(machine->flags | FLAG_V);
+  return result;
+}
+
+static uint16_t alu_logic(struct Machine *machine, uint16_t result)
+{
+  machine->flags = (enum Flag)(machine->flags & ~(FLAG_C | FLAG_V));
+  return result;
+}
+
+static void update_zn_flags(struct Machine *machine, uint16_t result)
+{
+  machine->flags = (enum Flag)(machine->flags & ~(FLAG_Z | FLAG_N));
+  if (result == 0)
+    machine->flags = (enum Flag)(machine->flags | FLAG_Z);
+  if (result & 0x8000)
+    machine->flags = (enum Flag)(machine->flags | FLAG_N);
+}
+
+static void execute_alu(struct Machine *machine, const struct Instruction *instruction)
+{
+  uint16_t ord0 = read_register(machine, ORD0);
+  uint16_t ord1 = read_register(machine, ORD1);
+  uint16_t result;
+
+  switch (instruction->opcode)
+  {
+  case ADD:
+    result = alu_add(machine, ord0, ord1);
+    break;
+  case SUB:
+  case CMP:
+    result = alu_sub(machine, ord0, ord1);
+    break;
+  case DIV:
+    if (ord1 == 0)
+    {
+      machine->fault = FAULT_DIV_ZERO;
+      return;
+    }
+    result = alu_logic(machine, (uint16_t)(ord0 / ord1));
+    break;
+  case INC:
+    result = alu_add(machine, ord0, 1);
+    break;
+  case DEC:
+    result = alu_sub(machine, ord0, 1);
+    break;
+  case AND:
+    result = alu_logic(machine, ord0 & ord1);
+    break;
+  case OR:
+    result = alu_logic(machine, ord0 | ord1);
+    break;
+  case XOR:
+    result = alu_logic(machine, ord0 ^ ord1);
+    break;
+  case NOT:
+    result = alu_logic(machine, (uint16_t)~ord0);
+    break;
+  case SHL:
+    result = alu_logic(machine, ord1 < 16 ? (uint16_t)(ord0 << ord1) : 0);
+    break;
+  case SHR:
+    result = alu_logic(machine, ord1 < 16 ? (uint16_t)(ord0 >> ord1) : 0);
+    break;
+  default:
+    return;
+  }
+
+  if (instruction->opcode != CMP)
+    write_register(machine, RS, result);
+
+  update_zn_flags(machine, result);
 }
 
 void run_machine(struct Machine *machine)
