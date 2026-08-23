@@ -420,13 +420,22 @@ void app_main(void)
   reset_machine(&machine);
 
   static const uint16_t program[] = {
-      0x0448,
-      0x0D00,
-      0x1234,
+      0x0C00, 0x0005,
+      0x0C80, 0x0007,
+      0x0400,
+      0x0488,
+      0x4000,
+      0x0350,
+      0x0D80, 0x2000,
+      0x05A0,
+      0x1D00,
       0xF800,
   };
   memcpy(machine.memory, program, sizeof(program));
 
+  machine.reg[SP] = 0x8000;
   run_machine(&machine);
-  printf("HLT at %04Xh\n", read_register(&machine, PC));
+
+  printf("halted=%d fault=%d\n", machine.halted, machine.fault);
+  printf("R2=%04Xh memory[2000h]=%04Xh\n", read_register(&machine, R2), machine.memory[0x2000]);
 }
