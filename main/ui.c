@@ -63,16 +63,82 @@ static void command_read(int argc, char *argv[], struct Machine *machine)
 static void command_write(int argc, char *argv[], struct Machine *machine)
 {
   uint16_t address;
-  uint16_t value;
 
-  if (argc != 3 || !parse_number(argv[1], &address) || !parse_number(argv[2], &value))
+  if (argc < 3 || !parse_number(argv[1], &address))
   {
-    MACHINE_LOG("usage: wr <addr> <value>");
+    MACHINE_LOG("usage: wr <addr> <value> [value...]");
     return;
   }
 
-  machine->memory[address] = value;
-  MACHINE_LOG("%04X <= %04X", address, value);
+  uint16_t cursor = address;
+  unsigned int written = 0;
+
+  for (int i = 2; i < argc; i++)
+  {
+    uint16_t value;
+
+    if (!parse_number(argv[i], &value))
+    {
+      MACHINE_LOG("bad value: %s", argv[i]);
+      return;
+    }
+
+    machine->memory[cursor] = value;
+    cursor = (uint16_t)(cursor + 1);
+    written++;
+  }
+
+  MACHINE_LOG("%04X <= %u word(s)", address, written);
+}
+
+static void command_load(int argc, char *argv[], struct Machine *machine)
+{
+  uint16_t address;
+
+  if (argc != 2 || !parse_number(argv[1], &address))
+  {
+    MACHINE_LOG("usage: load <addr> (hex words on stdin, '.' to finish)");
+    return;
+  }
+
+  uint16_t cursor = address;
+  unsigned int loaded = 0;
+  bool terminated = false;
+  char line[256];
+
+  while (fgets(line, sizeof(line), stdin))
+  {
+    char *p = line;
+
+    while (*p == ' ' || *p == '\t')
+      p++;
+
+    if (p[0] == '.')
+    {
+      terminated = true;
+      break;
+    }
+
+    if (p[0] == '\n' || p[0] == '\r' || p[0] == '\0')
+      continue;
+
+    char *end = p;
+
+    for (;;)
+    {
+      char *before = end;
+      unsigned long value = strtoul(before, &end, 16);
+
+      if (end == before)
+        break;
+
+      machine->memory[cursor] = (uint16_t)value;
+      cursor = (uint16_t)(cursor + 1);
+      loaded++;
+    }
+  }
+
+  MACHINE_LOG("loaded %u word(s) at %04X%s", loaded, address, terminated ? "" : " (missing terminator)");
 }
 
 static void command_pc(int argc, struct Machine *machine, char *argv[])
@@ -93,7 +159,7 @@ void ui_execute_command(int argc, char *argv[], struct Machine *machine, struct 
 {
   if (argc < 1)
   {
-    MACHINE_LOG("commands: rd wr pc run step stop reset info");
+    MACHINE_LOG("commands: rd wr load pc run step stop reset info");
     return;
   }
 
@@ -103,6 +169,8 @@ void ui_execute_command(int argc, char *argv[], struct Machine *machine, struct 
     command_read(argc, argv, machine);
   else if (strcmp(command, "wr") == 0)
     command_write(argc, argv, machine);
+  else if (strcmp(command, "load") == 0)
+    command_load(argc, argv, machine);
   else if (strcmp(command, "pc") == 0)
     command_pc(argc, machine, argv);
   else if (strcmp(command, "run") == 0)

@@ -42,7 +42,7 @@ void app_main(void)
 
   esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
   repl_config.prompt = "retro>";
-  repl_config.max_cmdline_length = 128;
+  repl_config.max_cmdline_length = 512;
 
   esp_console_dev_uart_config_t uart_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
 

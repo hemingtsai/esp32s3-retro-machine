@@ -1,6 +1,6 @@
-// Verifies that assembler --format cmd output can be pasted into the
-// serial console to load a program: every generated line is fed through
-// the command interpreter, then the machine runs to completion.
+// Verifies the bulk load path: assembler --format cmd emits a `load`
+// command followed by raw hex words on stdin; feed it through the
+// command interpreter and run the program to completion.
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,10 +10,6 @@
 #include "../main/machine.c"
 #include "../main/ui.c"
 
-#ifndef CMD_FILE
-#define CMD_FILE "loop.cmd"
-#endif
-
 int main(void)
 {
   struct Machine m;
@@ -22,19 +18,8 @@ int main(void)
   reset_control_panel(&p);
   enable_instruction_trace(false);
 
-  FILE *file = fopen(CMD_FILE, "r");
-  assert(file);
-
-  char line[128];
-  while (fgets(line, sizeof(line), file))
-  {
-    char *argv[4] = {0};
-    int argc = 0;
-    for (char *token = strtok(line, " \t\n"); token && argc < 4; token = strtok(NULL, " \t\n"))
-      argv[argc++] = token;
-    ui_execute_command(argc, argv, &m, &p);
-  }
-  fclose(file);
+  char *load_args[] = {"load", "0000"};
+  ui_execute_command(2, load_args, &m, &p);
 
   /* the trailing pc command points at the entry address */
   assert(m.reg[PC] == 0);

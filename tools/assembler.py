@@ -451,13 +451,17 @@ def write_hex(path: Path, words):
 def write_commands(path: Path, words, entry_address):
     """Write serial console commands that load the program.
 
-    Each word becomes a `wr` command; the final `pc` command points
-    the program counter at the entry address. Paste the output into
-    the serial terminal to load and position the program.
+    Emits one `load` command followed by raw hex words (8 per line)
+    and a '.' terminator, then a `pc` command pointing at the entry
+    address. Paste the output into the serial terminal; the words are
+    consumed as a stream without per-line command processing.
     """
     with path.open("w", encoding="ascii") as f:
-        for addr, word in enumerate(words):
-            f.write(f"wr {addr:04X} {word:04X}\n")
+        f.write("load 0000\n")
+        for i in range(0, len(words), 8):
+            chunk = words[i:i + 8]
+            f.write(" ".join(f"{word:04X}" for word in chunk) + "\n")
+        f.write(".\n")
         f.write(f"pc {entry_address:04X}\n")
 
 

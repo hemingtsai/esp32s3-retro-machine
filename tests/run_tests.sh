@@ -24,8 +24,8 @@ for source in tests/test_*.c; do
     extra_flags="-I $BUILD_DIR"
   fi
   if [ "$name" = "test_cmdload" ]; then
-    python3 tools/assembler.py tests/programs/loop.asm -o "$BUILD_DIR/loop.cmd" --format cmd || exit 1
-    extra_flags="-DCMD_FILE=\"$BUILD_DIR/loop.cmd\""
+    python3 tools/assembler.py tests/programs/loop.asm -o "$BUILD_DIR/loop.cmd" --format cmd > /dev/null || exit 1
+    extra_flags="-DFILE_PATH=\"$BUILD_DIR/loop.cmd\""
   fi
   if ! cc $CFLAGS $extra_flags "$source" -o "$BUILD_DIR/$name" 2> "$BUILD_DIR/$name.log"; then
     echo "FAIL(build) $name"
@@ -33,7 +33,11 @@ for source in tests/test_*.c; do
     status=1
     continue
   fi
-  if ! enable_trace=1 "$BUILD_DIR/$name" > "$BUILD_DIR/$name.out" 2>&1; then
+  stdin_redirect=""
+  if [ "$name" = "test_cmdload" ]; then
+    stdin_redirect="< \"$BUILD_DIR/loop.cmd\""
+  fi
+  if ! eval enable_trace=1 "$BUILD_DIR/$name" $stdin_redirect "> $BUILD_DIR/$name.out" 2>&1; then
     echo "FAIL(run)    $name"
     cat "$BUILD_DIR/$name.out"
     status=1

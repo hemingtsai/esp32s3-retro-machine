@@ -44,6 +44,13 @@ int main(void)
   ui_execute_command(3, wr_args, &m, &p);
   assert(m.memory[0x2000] == 0x1234);
 
+  /* wr accepts multiple consecutive values */
+  char *wr_multi[] = {"wr", "2010h", "AAAAh", "BBBBh", "CCCCh"};
+  ui_execute_command(5, wr_multi, &m, &p);
+  assert(m.memory[0x2010] == 0xAAAA);
+  assert(m.memory[0x2011] == 0xBBBB);
+  assert(m.memory[0x2012] == 0xCCCC);
+
   /* rd prints; verify it does not modify state */
   uint16_t pc_before = m.reg[PC];
   char *rd_args[] = {"rd", "2000h", "2"};
