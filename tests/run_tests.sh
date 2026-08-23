@@ -18,7 +18,12 @@ status=0
 
 for source in tests/test_*.c; do
   name=$(basename "$source" .c)
-  if ! cc $CFLAGS "$source" -o "$BUILD_DIR/$name" 2> "$BUILD_DIR/$name.log"; then
+  extra_flags=""
+  if [ "$name" = "test_e2e" ]; then
+    python3 tests/gen_e2e_header.py tools/assembler.py "$BUILD_DIR" > "$BUILD_DIR/e2e_programs.h" || exit 1
+    extra_flags="-I $BUILD_DIR"
+  fi
+  if ! cc $CFLAGS $extra_flags "$source" -o "$BUILD_DIR/$name" 2> "$BUILD_DIR/$name.log"; then
     echo "FAIL(build) $name"
     cat "$BUILD_DIR/$name.log"
     status=1
