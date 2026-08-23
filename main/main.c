@@ -157,9 +157,10 @@ uint16_t run_bytecode(const uint16_t bytecode[])
 void app_main(void)
 {
   static const uint16_t program[] = {
-      0x4808,
-      0x1120,
+      0x0448,
+      0x0D00,
       0x1234,
+      0xF800,
   };
 
   uint16_t halted_at = run_bytecode(program);
