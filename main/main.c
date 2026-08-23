@@ -556,8 +556,11 @@ void run_machine(struct Machine *machine)
 
 void app_main(void)
 {
-  static struct Machine machine;
+  struct Machine machine;
+  struct ControlPanel panel;
+
   reset_machine(&machine);
+  reset_control_panel(&panel);
 
   static const uint16_t program[] = {
       0x0C00, 0x0005,
@@ -566,16 +569,16 @@ void app_main(void)
       0x0488,
       0x4000,
       0x0350,
-      0x0D80, 0x2000,
-      0x05A0,
-      0x1D00,
       0xF800,
   };
-  memcpy(machine.memory, program, sizeof(program));
+  memcpy(machine.memory + 0x0020, program, sizeof(program));
 
-  machine.reg[SP] = 0x8000;
-  run_machine(&machine);
+  machine.reg[PC] = 0x0020;
+  panel_run(&machine);
 
-  printf("halted=%d fault=%d\n", machine.halted, machine.fault);
-  printf("R2=%04Xh memory[2000h]=%04Xh\n", read_register(&machine, R2), machine.memory[0x2000]);
+  panel.display = PANEL_RS;
+  printf("halted=%d RS=%04Xh\n", machine.halted, panel_read_display(&machine, &panel));
+
+  panel_examine(&panel);
+  printf("memory[%04Xh]=%04Xh\n", read_register(&machine, MAR), panel_read_display(&machine, &panel));
 }
