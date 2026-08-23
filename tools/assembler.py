@@ -153,8 +153,10 @@ def parse_value(token: str, labels: dict, line_no: int) -> int:
         raise AssemblerError(f"line {line_no}: invalid value or unknown label: {token}")
 
 
-def encode(line: str, line_no: int, labels: dict):
-    # Returns list of 16-bit words.
+def encode(line: str, line_no: int, labels: dict, pc: int = 0):
+    # Returns list of 16-bit words. `pc` is the word address of this
+    # instruction; it is needed to expand pseudo-instructions that
+    # reference the following address (e.g. CALL with a label).
     parts = line.split(None, 1)
     mnemonic = parts[0].upper()
     operands = split_operands(parts[1] if len(parts) > 1 else "")
@@ -232,6 +234,30 @@ def encode(line: str, line_no: int, labels: dict):
                     f"line {line_no}: unknown label: {target}"
                 )
 
+            value = u16(labels[key], "address")
+
+            if mnemonic == "CALL":
+                # Pseudo-instruction:
+                #   CALL LABEL
+                # ->
+                #   LDI LABEL, R7
+                #   LDI ret, R6
+                #   CALL R7
+                #
+                # RET pops the address of the word right after the CALL
+                # opcode itself (inside this expansion), so the return
+                # address must be loaded explicitly. `ret` points to the
+                # first word after the whole 5-word expansion.
+                ldi_target = (
+                    OPCODES["LDI"] << 11
+                ) | (REGISTERS["R7"] << 7)
+                ldi_ret = (
+                    OPCODES["LDI"] << 11
+                ) | (REGISTERS["R6"] << 7)
+                ret = u16(pc + 5, "return address")
+                call = (op << 11) | (REGISTERS["R7"] << 7)
+                return [ldi_target, value, ldi_ret, ret, call]
+
             # Pseudo-instruction:
             #   Jxx LABEL
             # ->
@@ -240,7 +266,6 @@ def encode(line: str, line_no: int, labels: dict):
             ldi = (
                 OPCODES["LDI"] << 11
             ) | (REGISTERS["R7"] << 7)
-            value = u16(labels[key], "address")
             jump = (op << 11) | (REGISTERS["R7"] << 7)
             return [ldi, value, jump]
 
@@ -345,8 +370,9 @@ def first_pass(items):
         pc += 2 if mnemonic == "LDI" else 1
 
         # A label used directly as a jump/CALL target expands to:
-        #   LDI LABEL, R7
-        #   Jxx R7
+        #   Jxx LABEL -> LDI LABEL, R7; Jxx R7          (2 extra words)
+        #   CALL LABEL -> LDI LABEL, R7; LDI ret, R6;
+        #                 CALL R7                        (4 extra words)
         if mnemonic in JUMP_REG:
             parts = text.split(None, 1)
             operands = split_operands(
@@ -356,7 +382,7 @@ def first_pass(items):
                 len(operands) == 1
                 and operands[0].upper() not in REGISTERS
             ):
-                pc += 2
+                pc += 4 if mnemonic == "CALL" else 2
 
     if pc > 0x10000:
         raise AssemblerError("program exceeds 64 Ki words")
@@ -385,7 +411,7 @@ def second_pass(items, labels):
                 source_map.append((line_no, text))
             continue
 
-        encoded = encode(text, line_no, labels)
+        encoded = encode(text, line_no, labels, len(words))
         for word in encoded:
             words.append(word)
             source_map.append((line_no, text))
