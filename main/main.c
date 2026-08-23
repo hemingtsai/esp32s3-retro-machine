@@ -628,8 +628,8 @@ void run_machine(struct Machine *machine)
 
 void app_main(void)
 {
-  struct Machine machine;
-  struct ControlPanel panel;
+  static struct Machine machine;
+  static struct ControlPanel panel;
 
   reset_machine(&machine);
   reset_control_panel(&panel);
