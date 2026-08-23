@@ -184,29 +184,90 @@ size_t decode_instruction(const uint16_t memory[], uint16_t pc, struct Instructi
   }
 }
 
-uint16_t run_bytecode(const uint16_t bytecode[])
+static void execute_data(struct Machine *machine, const struct Instruction *instruction)
 {
-  uint16_t pc = 0;
+  switch (instruction->opcode)
+  {
+  case MOV:
+    write_register(machine, instruction->r.destination, read_register(machine, instruction->r.source));
+    break;
+  case LDI:
+    write_register(machine, instruction->i.destination, instruction->i.immediate);
+    break;
+  case RED:
+    write_register(machine, instruction->u.reg, machine->memory[read_register(machine, MAR)]);
+    break;
+  case WRT:
+    machine->memory[read_register(machine, MAR)] = read_register(machine, instruction->u.reg);
+    break;
+  case PUSH:
+    machine->memory[--machine->reg[SP]] = read_register(machine, instruction->u.reg);
+    break;
+  case POP:
+    write_register(machine, instruction->u.reg, machine->memory[machine->reg[SP]++]);
+    break;
+  case MNXT:
+    machine->reg[MAR]++;
+    break;
+  case MPRV:
+    machine->reg[MAR]--;
+    break;
+  default:
+    break;
+  }
+}
+
+void execute(struct Machine *machine, const struct Instruction *instruction)
+{
+  switch (instruction->opcode)
+  {
+  case MOV:
+  case LDI:
+  case RED:
+  case WRT:
+  case PUSH:
+  case POP:
+  case MNXT:
+  case MPRV:
+    execute_data(machine, instruction);
+    break;
+  case NOP:
+    break;
+  case HLT:
+    machine->halted = true;
+    break;
+  default:
+    break;
+  }
+}
+
+void run_machine(struct Machine *machine)
+{
   struct Instruction instruction;
 
-  for (;;)
+  while (!machine->halted && machine->fault == FAULT_NONE)
   {
-    size_t size = decode_instruction(bytecode, pc, &instruction);
-    if (instruction.opcode == HLT)
-      return pc;
-    pc = (uint16_t)(pc + size);
+    uint16_t pc = read_register(machine, PC);
+    size_t size = decode_instruction(machine->memory, pc, &instruction);
+    machine->reg[IR] = fetch(machine->memory, pc);
+    write_register(machine, PC, (uint16_t)(pc + size));
+    execute(machine, &instruction);
   }
 }
 
 void app_main(void)
 {
+  static struct Machine machine;
+  reset_machine(&machine);
+
   static const uint16_t program[] = {
       0x0448,
       0x0D00,
       0x1234,
       0xF800,
   };
+  memcpy(machine.memory, program, sizeof(program));
 
-  uint16_t halted_at = run_bytecode(program);
-  printf("HLT at %04Xh\n", halted_at);
+  run_machine(&machine);
+  printf("HLT at %04Xh\n", read_register(&machine, PC));
 }
