@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../main/main.c"
+#include "../main/machine.c"
 
 static const uint16_t prog_loop[] = {
   0x0C00,

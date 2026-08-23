@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../main/main.c"
+#include "../main/machine.c"
 #include "e2e_programs.h"
 
 static struct Machine m;

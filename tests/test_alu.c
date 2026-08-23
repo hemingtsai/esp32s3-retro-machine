@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../main/main.c"
+#include "../main/machine.c"
 
 static struct Machine m;
 
