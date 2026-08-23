@@ -4,6 +4,13 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifdef ESP_PLATFORM
+#include <esp_log.h>
+#define MACHINE_LOG(fmt, ...) ESP_LOGI("cpu", fmt, ##__VA_ARGS__)
+#else
+#define MACHINE_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#endif
+
 #define MEMORY_WORD_COUNT 0x10000
 
 enum Register
@@ -104,6 +111,46 @@ enum Fault
   FAULT_NONE,
   FAULT_DIV_ZERO
 };
+
+static const char *const register_names[16] = {
+    "ORD0", "ORD1", "PC", "IR", "MAR", "SP", "RS", "DISPLAY",
+    "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"};
+
+static const char *const opcode_names[32] = {
+    "MOV", "LDI", "RED", "WRT", "PUSH", "POP", "MNXT", "MPRV",
+    "ADD", "SUB", "DIV", "INC", "DEC", "AND", "OR", "XOR",
+    "NOT", "SHL", "SHR", "CMP", "JMP", "JZ", "JNZ", "JN",
+    "JP", "JC", "JNC", "JV", "CALL", "RET", "NOP", "HLT"};
+
+void format_instruction(const struct Instruction *instruction, char *buffer, size_t size)
+{
+  const char *mnemonic = opcode_names[instruction->opcode];
+
+  switch (instruction->type)
+  {
+  case R:
+    snprintf(buffer, size, "%s %s,%s", mnemonic,
+             register_names[instruction->r.source],
+             register_names[instruction->r.destination]);
+    break;
+  case I:
+    snprintf(buffer, size, "%s %s,%04Xh", mnemonic,
+             register_names[instruction->i.destination],
+             instruction->i.immediate);
+    break;
+  case U:
+    snprintf(buffer, size, "%s %s", mnemonic,
+             register_names[instruction->u.reg]);
+    break;
+  case J:
+    snprintf(buffer, size, "%s %s", mnemonic,
+             register_names[instruction->j.target]);
+    break;
+  default:
+    snprintf(buffer, size, "%s", mnemonic);
+    break;
+  }
+}
 
 struct Machine
 {
