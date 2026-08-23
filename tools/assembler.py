@@ -6,6 +6,7 @@ Usage:
     python assembler.py input.asm -o output.bin
     python assembler.py input.asm -o output.txt --format text
     python assembler.py input.asm -o output.txt --format addrtext
+    python assembler.py input.asm -o output.cmd --format cmd
 
 Text output:
     - one 16-bit word per line
@@ -447,6 +448,19 @@ def write_hex(path: Path, words):
             f.write(f"{word:04X}\n")
 
 
+def write_commands(path: Path, words, entry_address):
+    """Write serial console commands that load the program.
+
+    Each word becomes a `wr` command; the final `pc` command points
+    the program counter at the entry address. Paste the output into
+    the serial terminal to load and position the program.
+    """
+    with path.open("w", encoding="ascii") as f:
+        for addr, word in enumerate(words):
+            f.write(f"wr {addr:04X} {word:04X}\n")
+        f.write(f"pc {entry_address:04X}\n")
+
+
 def assemble(source: str):
     items, entry_label = preprocess(source)
     labels = first_pass(items)
@@ -471,7 +485,7 @@ def main():
                         help="output file")
     parser.add_argument(
         "--format",
-        choices=("bin", "text", "hex", "addrtext"),
+        choices=("bin", "text", "hex", "addrtext", "cmd"),
         default="bin",
         help="output format (default: bin)",
     )
@@ -492,6 +506,8 @@ def main():
             write_text(args.output, words)
         elif args.format == "addrtext":
             write_addr_text(args.output, words)
+        elif args.format == "cmd":
+            write_commands(args.output, words, entry_address)
         else:
             write_hex(args.output, words)
 

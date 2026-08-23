@@ -23,6 +23,10 @@ for source in tests/test_*.c; do
     python3 tests/gen_e2e_header.py tools/assembler.py "$BUILD_DIR" > "$BUILD_DIR/e2e_programs.h" || exit 1
     extra_flags="-I $BUILD_DIR"
   fi
+  if [ "$name" = "test_cmdload" ]; then
+    python3 tools/assembler.py tests/programs/loop.asm -o "$BUILD_DIR/loop.cmd" --format cmd || exit 1
+    extra_flags="-DCMD_FILE=\"$BUILD_DIR/loop.cmd\""
+  fi
   if ! cc $CFLAGS $extra_flags "$source" -o "$BUILD_DIR/$name" 2> "$BUILD_DIR/$name.log"; then
     echo "FAIL(build) $name"
     cat "$BUILD_DIR/$name.log"
