@@ -220,6 +220,29 @@ static void execute_data(struct Machine *machine, const struct Instruction *inst
 static void execute_data(struct Machine *machine, const struct Instruction *instruction);
 static void execute_alu(struct Machine *machine, const struct Instruction *instruction);
 
+static bool jump_taken(const struct Machine *machine, enum Opcode opcode)
+{
+  switch (opcode)
+  {
+  case JZ:
+    return machine->flags & FLAG_Z;
+  case JNZ:
+    return !(machine->flags & FLAG_Z);
+  case JN:
+    return machine->flags & FLAG_N;
+  case JP:
+    return !(machine->flags & FLAG_N);
+  case JC:
+    return machine->flags & FLAG_C;
+  case JNC:
+    return !(machine->flags & FLAG_C);
+  case JV:
+    return machine->flags & FLAG_V;
+  default:
+    return false;
+  }
+}
+
 void execute(struct Machine *machine, const struct Instruction *instruction)
 {
   switch (instruction->opcode)
@@ -248,7 +271,28 @@ void execute(struct Machine *machine, const struct Instruction *instruction)
   case CMP:
     execute_alu(machine, instruction);
     break;
+  case JMP:
+    write_register(machine, PC, read_register(machine, instruction->j.target));
+    break;
+  case JZ:
+  case JNZ:
+  case JN:
+  case JP:
+  case JC:
+  case JNC:
+  case JV:
+    if (jump_taken(machine, instruction->opcode))
+      write_register(machine, PC, read_register(machine, instruction->j.target));
+    break;
+  case CALL:
+    machine->memory[--machine->reg[SP]] = read_register(machine, PC);
+    write_register(machine, PC, read_register(machine, instruction->j.target));
+    break;
   case NOP:
+    break;
+  case RET:
+    write_register(machine, PC, machine->memory[read_register(machine, SP)]);
+    machine->reg[SP]++;
     break;
   case HLT:
     machine->halted = true;
