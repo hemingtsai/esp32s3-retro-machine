@@ -31,7 +31,8 @@ void app_main(void)
 
   static const esp_console_cmd_t commands[] = {
       {.command = "rd", .help = "Read memory words: rd <addr> [count]", .func = command_handler},
-      {.command = "wr", .help = "Write a memory word: wr <addr> <value>", .func = command_handler},
+      {.command = "wr", .help = "Write memory words: wr <addr> <value> [value...]", .func = command_handler},
+      {.command = "load", .help = "Bulk load hex words from stream: load <addr>, '.' to finish", .func = command_handler},
       {.command = "pc", .help = "Set the program counter: pc <addr>", .func = command_handler},
       {.command = "run", .help = "Run until HLT", .func = command_handler},
       {.command = "step", .help = "Execute one instruction", .func = command_handler},
