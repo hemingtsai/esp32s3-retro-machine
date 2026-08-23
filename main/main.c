@@ -580,6 +580,23 @@ static void execute_alu(struct Machine *machine, const struct Instruction *instr
   update_zn_flags(machine, result);
 }
 
+static bool trace_enabled = true;
+
+void enable_instruction_trace(bool enabled)
+{
+  trace_enabled = enabled;
+}
+
+static void trace_instruction(const struct Machine *machine, uint16_t pc, const struct Instruction *instruction)
+{
+  if (!trace_enabled)
+    return;
+
+  char text[32];
+  format_instruction(instruction, text, sizeof(text));
+  MACHINE_LOG("%04X: %04X  %s", pc, machine->reg[IR], text);
+}
+
 bool step_machine(struct Machine *machine)
 {
   struct Instruction instruction;
@@ -591,7 +608,15 @@ bool step_machine(struct Machine *machine)
   size_t size = decode_instruction(machine->memory, pc, &instruction);
   machine->reg[IR] = fetch(machine->memory, pc);
   write_register(machine, PC, (uint16_t)(pc + size));
+
+  trace_instruction(machine, pc, &instruction);
   execute(machine, &instruction);
+
+  if (trace_enabled && machine->fault != FAULT_NONE)
+    MACHINE_LOG("FAULT %s at %04X", machine->fault == FAULT_DIV_ZERO ? "DIV_ZERO" : "UNKNOWN", pc);
+  else if (trace_enabled && instruction.opcode == HLT)
+    MACHINE_LOG("HALT at %04X", read_register(machine, PC));
+
   return true;
 }
 
