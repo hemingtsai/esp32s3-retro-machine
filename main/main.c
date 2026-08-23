@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
 
@@ -88,5 +89,55 @@ struct Instruction
     } i;
   };
 };
+
+static uint16_t fetch(const uint16_t memory[], uint16_t pc)
+{
+  return memory[pc];
+}
+
+size_t decode_instruction(const uint16_t memory[], uint16_t pc, struct Instruction *instruction)
+{
+  uint16_t word = fetch(memory, pc);
+  enum Opcode opcode = (enum Opcode)((word >> 11) & 0x1F);
+  enum Register reg = (enum Register)((word >> 7) & 0x0F);
+
+  instruction->opcode = opcode;
+
+  switch (opcode)
+  {
+  case MOV:
+    instruction->type = R;
+    instruction->r.source = reg;
+    instruction->r.destination = (enum Register)((word >> 3) & 0x0F);
+    return 1;
+  case LDI:
+    instruction->type = I;
+    instruction->i.destination = reg;
+    instruction->i.immediate = fetch(memory, (uint16_t)(pc + 1));
+    return 2;
+  case RED:
+  case WRT:
+  case PUSH:
+  case POP:
+    instruction->type = U;
+    instruction->u.reg = reg;
+    return 1;
+  case JMP:
+  case JZ:
+  case JNZ:
+  case JN:
+  case JP:
+  case JC:
+  case JNC:
+  case JV:
+  case CALL:
+    instruction->type = J;
+    instruction->j.target = reg;
+    return 1;
+  default:
+    instruction->type = N;
+    return 1;
+  }
+}
 
 void app_main(void) {}
