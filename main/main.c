@@ -224,6 +224,21 @@ void panel_load(struct ControlPanel *panel)
   }
 }
 
+void panel_examine(struct ControlPanel *panel)
+{
+  panel->display = PANEL_MEMORY;
+}
+
+void panel_deposit(struct Machine *machine, const struct ControlPanel *panel)
+{
+  machine->memory[read_register(machine, MAR)] = panel->input_latch;
+}
+
+void panel_mnxt(struct Machine *machine)
+{
+  machine->reg[MAR]++;
+}
+
 size_t decode_instruction(const uint16_t memory[], uint16_t pc, struct Instruction *instruction)
 {
   uint16_t word = fetch(memory, pc);
