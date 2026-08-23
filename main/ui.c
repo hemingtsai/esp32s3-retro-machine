@@ -152,6 +152,8 @@ static void command_pc(int argc, struct Machine *machine, char *argv[])
   }
 
   write_register(machine, PC, address);
+  machine->halted = false;
+  machine->fault = FAULT_NONE;
   MACHINE_LOG("PC = %04X", address);
 }
 

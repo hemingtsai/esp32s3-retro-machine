@@ -75,6 +75,11 @@ int main(void)
   assert(m.halted);
   assert(!m.running);
 
+  /* pc clears the halted state so a fresh run can start */
+  char *pc_args6[] = {"pc", "0030h"};
+  ui_execute_command(2, pc_args6, &m, &p);
+  assert(!m.halted);
+
   /* stop pauses before halt */
   reset_machine(&m);
   memcpy(m.memory + 0x30, (uint16_t[]){0xF800}, sizeof(uint16_t));
