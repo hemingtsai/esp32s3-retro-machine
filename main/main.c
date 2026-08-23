@@ -117,16 +117,23 @@ struct Machine
     FLAG_V = 1 << 3
   } flags;
   bool halted;
+  bool running;
   enum Fault fault;
 };
+
+void reset_cpu(struct Machine *machine)
+{
+  memset(machine->reg, 0, sizeof(machine->reg));
+  machine->flags = (enum Flag)0;
+  machine->halted = false;
+  machine->running = false;
+  machine->fault = FAULT_NONE;
+}
 
 void reset_machine(struct Machine *machine)
 {
   memset(machine->memory, 0, sizeof(machine->memory));
-  memset(machine->reg, 0, sizeof(machine->reg));
-  machine->flags = (enum Flag)0;
-  machine->halted = false;
-  machine->fault = FAULT_NONE;
+  reset_cpu(machine);
 }
 
 uint16_t read_register(const struct Machine *machine, enum Register reg)
@@ -138,6 +145,8 @@ void write_register(struct Machine *machine, enum Register reg, uint16_t value)
 {
   machine->reg[reg] = value;
 }
+
+bool step_machine(struct Machine *machine);
 
 enum PanelDisplay
 {
@@ -237,6 +246,30 @@ void panel_deposit(struct Machine *machine, const struct ControlPanel *panel)
 void panel_mnxt(struct Machine *machine)
 {
   machine->reg[MAR]++;
+}
+
+void panel_run(struct Machine *machine)
+{
+  machine->running = true;
+  while (machine->running && step_machine(machine))
+    ;
+  machine->running = false;
+}
+
+void panel_stop(struct Machine *machine)
+{
+  machine->running = false;
+}
+
+bool panel_step(struct Machine *machine)
+{
+  return step_machine(machine);
+}
+
+void panel_reset(struct Machine *machine, struct ControlPanel *panel)
+{
+  reset_cpu(machine);
+  reset_control_panel(panel);
 }
 
 size_t decode_instruction(const uint16_t memory[], uint16_t pc, struct Instruction *instruction)
@@ -500,18 +533,25 @@ static void execute_alu(struct Machine *machine, const struct Instruction *instr
   update_zn_flags(machine, result);
 }
 
-void run_machine(struct Machine *machine)
+bool step_machine(struct Machine *machine)
 {
   struct Instruction instruction;
 
-  while (!machine->halted && machine->fault == FAULT_NONE)
-  {
-    uint16_t pc = read_register(machine, PC);
-    size_t size = decode_instruction(machine->memory, pc, &instruction);
-    machine->reg[IR] = fetch(machine->memory, pc);
-    write_register(machine, PC, (uint16_t)(pc + size));
-    execute(machine, &instruction);
-  }
+  if (machine->halted || machine->fault != FAULT_NONE)
+    return false;
+
+  uint16_t pc = read_register(machine, PC);
+  size_t size = decode_instruction(machine->memory, pc, &instruction);
+  machine->reg[IR] = fetch(machine->memory, pc);
+  write_register(machine, PC, (uint16_t)(pc + size));
+  execute(machine, &instruction);
+  return true;
+}
+
+void run_machine(struct Machine *machine)
+{
+  while (step_machine(machine))
+    ;
 }
 
 void app_main(void)
