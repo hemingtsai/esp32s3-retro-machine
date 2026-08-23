@@ -140,4 +140,28 @@ size_t decode_instruction(const uint16_t memory[], uint16_t pc, struct Instructi
   }
 }
 
-void app_main(void) {}
+uint16_t run_bytecode(const uint16_t bytecode[])
+{
+  uint16_t pc = 0;
+  struct Instruction instruction;
+
+  for (;;)
+  {
+    size_t size = decode_instruction(bytecode, pc, &instruction);
+    if (instruction.opcode == HLT)
+      return pc;
+    pc = (uint16_t)(pc + size);
+  }
+}
+
+void app_main(void)
+{
+  static const uint16_t program[] = {
+      0x4808,
+      0x1120,
+      0x1234,
+  };
+
+  uint16_t halted_at = run_bytecode(program);
+  printf("HLT at %04Xh\n", halted_at);
+}
