@@ -201,6 +201,29 @@ uint16_t panel_read_display(const struct Machine *machine, const struct ControlP
   }
 }
 
+void panel_set_switches(struct ControlPanel *panel, uint8_t switches)
+{
+  panel->switches = switches;
+}
+
+void panel_set_input_mode(struct ControlPanel *panel, enum PanelInputMode mode)
+{
+  panel->input_mode = mode;
+}
+
+void panel_load(struct ControlPanel *panel)
+{
+  switch (panel->input_mode)
+  {
+  case PANEL_LOW_BYTE:
+    panel->input_latch = (uint16_t)((panel->input_latch & 0xFF00) | panel->switches);
+    break;
+  case PANEL_HIGH_BYTE:
+    panel->input_latch = (uint16_t)((panel->input_latch & 0x00FF) | ((uint16_t)panel->switches << 8));
+    break;
+  }
+}
+
 size_t decode_instruction(const uint16_t memory[], uint16_t pc, struct Instruction *instruction)
 {
   uint16_t word = fetch(memory, pc);
