@@ -139,6 +139,68 @@ void write_register(struct Machine *machine, enum Register reg, uint16_t value)
   machine->reg[reg] = value;
 }
 
+enum PanelDisplay
+{
+  PANEL_PC,
+  PANEL_MAR,
+  PANEL_IR,
+  PANEL_R0,
+  PANEL_R1,
+  PANEL_R2,
+  PANEL_R3,
+  PANEL_RS,
+  PANEL_MEMORY
+};
+
+enum PanelInputMode
+{
+  PANEL_LOW_BYTE,
+  PANEL_HIGH_BYTE
+};
+
+struct ControlPanel
+{
+  enum PanelDisplay display;
+  enum PanelInputMode input_mode;
+  uint8_t switches;
+  uint16_t input_latch;
+};
+
+void reset_control_panel(struct ControlPanel *panel)
+{
+  panel->display = PANEL_PC;
+  panel->input_mode = PANEL_LOW_BYTE;
+  panel->switches = 0;
+  panel->input_latch = 0;
+}
+
+uint16_t panel_read_display(const struct Machine *machine, const struct ControlPanel *panel)
+{
+  switch (panel->display)
+  {
+  case PANEL_PC:
+    return read_register(machine, PC);
+  case PANEL_MAR:
+    return read_register(machine, MAR);
+  case PANEL_IR:
+    return read_register(machine, IR);
+  case PANEL_R0:
+    return read_register(machine, R0);
+  case PANEL_R1:
+    return read_register(machine, R1);
+  case PANEL_R2:
+    return read_register(machine, R2);
+  case PANEL_R3:
+    return read_register(machine, R3);
+  case PANEL_RS:
+    return read_register(machine, RS);
+  case PANEL_MEMORY:
+    return machine->memory[read_register(machine, MAR)];
+  default:
+    return 0;
+  }
+}
+
 size_t decode_instruction(const uint16_t memory[], uint16_t pc, struct Instruction *instruction)
 {
   uint16_t word = fetch(memory, pc);
