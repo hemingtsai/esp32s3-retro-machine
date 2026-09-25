@@ -1,0 +1,17 @@
+u16 main(void)
+{
+    u16 score = 0;
+    if (3 < 4) score += 1;
+    if (4 <= 4) score += 2;
+    if (9 > 5) score += 4;
+    if (5 >= 5) score += 8;
+    if (7 == 7) score += 16;
+    if (7 != 8) score += 32;
+    if (!0) score += 64;
+    if (~0 == 0xffff) score += 128;
+    if (-1 == 0xffff) score += 256;
+    if (4 > 4) score += 512;
+    if (3 <= 4) score += 1024;
+    if (4 <= 3) score += 2048;
+    return score;
+}

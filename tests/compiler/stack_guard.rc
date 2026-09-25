@@ -1,0 +1,9 @@
+u16 descend(u16 value)
+{
+    return descend(value + 1);
+}
+
+u16 main(void)
+{
+    return descend(0);
+}

@@ -1,0 +1,9 @@
+u16 bias = 3;
+u16 seed = 0x0005;
+
+u16 main(void)
+{
+    u16 value = bias + seed;
+    value <<= 1;
+    return value;
+}

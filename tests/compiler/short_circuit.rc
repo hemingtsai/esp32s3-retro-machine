@@ -1,0 +1,17 @@
+u16 calls = 0;
+
+u16 touch(void)
+{
+    calls += 1;
+    return 1;
+}
+
+u16 main(void)
+{
+    u16 and_value = 0 && touch();
+    u16 or_value = 1 || touch();
+    if (calls != 0) {
+        return 0xffff;
+    }
+    return and_value + or_value;
+}

@@ -1,0 +1,16 @@
+u16 total = 0;
+
+void add(u16 value)
+{
+    total += value;
+}
+
+u16 main(void)
+{
+    add(3);
+    add(4);
+    if (total == 7) {
+        return total;
+    }
+    return 0;
+}

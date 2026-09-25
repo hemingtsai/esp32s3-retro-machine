@@ -25,6 +25,11 @@ if ! sh tests/test_assembler.sh "$BUILD_DIR/assembler" "$BUILD_DIR"; then
     status=1
 fi
 
+if ! sh tests/test_retrocc.sh "$BUILD_DIR/assembler" "$BUILD_DIR"; then
+    printf 'FAIL(run)    retrocc\n'
+    status=1
+fi
+
 for source in tests/test_*.c; do
     name=$(basename "$source" .c)
     extra_flags=""

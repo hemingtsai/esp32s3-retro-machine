@@ -1,0 +1,30 @@
+u16 increment(u16 value)
+{
+    return value + 1;
+}
+
+u16 twice(u16 value)
+{
+    return increment(value) + increment(value);
+}
+
+u16 sixth(u16 a, u16 b, u16 c, u16 d, u16 e, u16 f)
+{
+    return a + b + c + d + e + f;
+}
+
+u16 sum(u16 value)
+{
+    if (value == 0) {
+        return 0;
+    }
+    return value + sum(value - 1);
+}
+
+u16 main(void)
+{
+    u16 nested = twice(4);
+    u16 recursive = sum(5);
+    u16 parameter = sixth(1, 2, 3, 4, 5, 6);
+    return nested + recursive + parameter;
+}

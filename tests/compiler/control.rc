@@ -1,0 +1,14 @@
+u16 main(void)
+{
+    u16 sum = 0;
+    for (u16 index = 1; index < 8; index += 1) {
+        if (index == 3) {
+            continue;
+        }
+        if (index == 7) {
+            break;
+        }
+        sum += index;
+    }
+    return sum;
+}

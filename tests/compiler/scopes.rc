@@ -1,0 +1,12 @@
+u16 main(void)
+{
+    {
+        u16 first = 1;
+        first += 1;
+    }
+    {
+        u16 first = 7;
+        first -= 1;
+    }
+    return 0;
+}
