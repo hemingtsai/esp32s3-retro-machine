@@ -1,0 +1,9 @@
+u16 add(u16 left, u16 right)
+{
+    return left + right;
+}
+
+u16 main(void)
+{
+    return add(20, 22);
+}

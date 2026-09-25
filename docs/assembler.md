@@ -283,3 +283,7 @@ sh tests/run_tests.sh
 ```
 
 `tests/run_tests.sh` 会严格构建 C 汇编器，运行不依赖 Python 汇编器 oracle 的字节级 fixture、格式/错误/边界测试，再使用同一个 C 可执行文件生成端到端头文件和 `test_cmdload` 的命令文件。
+
+## 与 Retro C 编译器
+
+Retro C 编译器 [`tools/retrocc.c`](../tools/retrocc.c) 先生成 Retro 汇编文本，再由本汇编器编码为二进制或串口命令。语言规范、目标 ABI 和完整流水线见 [`docs/retro-c.md`](retro-c.md) 与 [`docs/compiler.md`](compiler.md)。
