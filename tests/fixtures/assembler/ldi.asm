@@ -1,0 +1,8 @@
+LDI 0, R0
+LDI 1, R1
+LDI 2, R2
+LDI 3, R3
+LDI 4, R4
+LDI 5, R5
+LDI 6, R6
+LDI 7, R7

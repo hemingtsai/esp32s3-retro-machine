@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assemble tests/programs/*.asm and emit a C header with the words.
 
-Usage: python3 tests/gen_e2e_header.py path/to/assembler.py path/to/outdir
+Usage: python3 tests/gen_e2e_header.py path/to/assembler path/to/outdir
 """
 import struct
 import subprocess
@@ -16,8 +16,9 @@ programs_dir = Path(__file__).resolve().parent / "programs"
 def assemble(asm_path: Path) -> list[int]:
     name = asm_path.stem
     out = out_dir / f"{name}.bin"
+    command = [sys.executable, str(assembler)] if assembler.suffix.lower() == ".py" else [str(assembler)]
     subprocess.run(
-        ["python3", str(assembler), str(asm), "-o", str(out)],
+        [*command, str(asm_path), "-o", str(out)],
         check=True,
         capture_output=True,
     )
