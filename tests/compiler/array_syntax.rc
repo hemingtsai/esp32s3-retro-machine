@@ -1,0 +1,11 @@
+u16 one(void)
+{
+    return 1;
+}
+
+u16 main(void)
+{
+    u16 values[3] = {one() + 1, 2,};
+    values[0] += 3;
+    return (values)[0] + values[1] + values[2];
+}

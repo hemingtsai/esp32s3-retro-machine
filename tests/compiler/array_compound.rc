@@ -1,0 +1,14 @@
+u16 main(void)
+{
+    u16 values[8] = {96, 16, 192, 255, 1, 0, 3, 64};
+    values[0] += 16;
+    values[1] -= 16;
+    values[2] /= 2;
+    values[3] &= 0x0f;
+    values[4] |= 0x30;
+    values[5] ^= 0xff;
+    values[6] <<= 1;
+    values[7] >>= 2;
+    return values[0] + values[1] + values[2] + values[3] +
+           values[4] + values[5] + values[6] + values[7];
+}

@@ -1,0 +1,15 @@
+u16 values[5] = {1, 2, 3,};
+u16 zeros[2];
+
+u16 at(u16 index)
+{
+    return values[index];
+}
+
+u16 main(void)
+{
+    values[at(1)] = 9;
+    values[4] = at(2) + values[3];
+    return values[0] + values[1] + values[2] + values[3] + values[4] +
+           zeros[0] + zeros[1];
+}

@@ -31,6 +31,8 @@ typedef enum {
     RC_TOKEN_RBRACE,
     RC_TOKEN_LPAREN,
     RC_TOKEN_RPAREN,
+    RC_TOKEN_LBRACKET,
+    RC_TOKEN_RBRACKET,
     RC_TOKEN_SEMICOLON,
     RC_TOKEN_COMMA,
     RC_TOKEN_PLUS,
@@ -79,6 +81,7 @@ typedef enum {
 typedef enum {
     RC_EXPR_NUMBER,
     RC_EXPR_VARIABLE,
+    RC_EXPR_INDEX,
     RC_EXPR_CALL,
     RC_EXPR_UNARY,
     RC_EXPR_BINARY,
@@ -119,11 +122,13 @@ struct RcEntity {
     char *name;
     RcEntity *next;
     RcType type;
+    bool array;
     size_t parameter_count;
+    size_t element_count;
     size_t offset;
     size_t scope_depth;
-    bool has_initializer;
-    uint16_t initializer;
+    uint16_t *initializers;
+    size_t initializer_count;
 };
 
 struct RcExpr {
@@ -159,6 +164,7 @@ typedef struct {
     size_t temporary_depth;
     size_t parse_depth;
     size_t next_label;
+    bool uses_array_index;
     bool failed;
 } RcCompiler;
 
@@ -499,6 +505,8 @@ static RcTokenKind rc_punctuation_kind(const unsigned char *data, size_t length,
     case '}': return RC_TOKEN_RBRACE;
     case '(': return RC_TOKEN_LPAREN;
     case ')': return RC_TOKEN_RPAREN;
+    case '[': return RC_TOKEN_LBRACKET;
+    case ']': return RC_TOKEN_RBRACKET;
     case ';': return RC_TOKEN_SEMICOLON;
     case ',': return RC_TOKEN_COMMA;
     case '+': return RC_TOKEN_PLUS;
@@ -871,7 +879,12 @@ static bool rc_expr_is_void(const RcExpr *expression)
 
 static bool rc_expr_is_lvalue(const RcExpr *expression)
 {
-    return expression->kind == RC_EXPR_VARIABLE && expression->entity->kind != RC_ENTITY_FUNCTION;
+    if (expression->kind == RC_EXPR_INDEX) {
+        return true;
+    }
+    return expression->kind == RC_EXPR_VARIABLE &&
+           expression->entity->kind != RC_ENTITY_FUNCTION &&
+           !expression->entity->array;
 }
 
 static void rc_emit(RcCompiler *compiler, const char *format, ...)
@@ -926,6 +939,11 @@ static void rc_mov(RcCompiler *compiler, const char *source, const char *destina
 
 static void rc_push_temporary(RcCompiler *compiler)
 {
+    if (compiler->temporary_depth >= RETROCC_TEMPORARY_RESERVE) {
+        rc_error(compiler, NULL, "expression temporary stack exceeds %u words",
+                 RETROCC_TEMPORARY_RESERVE);
+        return;
+    }
     rc_emit(compiler, "PUSH RS\n");
     ++compiler->temporary_depth;
 }
@@ -958,6 +976,91 @@ static bool rc_constant(RcCompiler *compiler, uint16_t *value)
     return true;
 }
 
+static bool rc_parse_array_length(RcCompiler *compiler, size_t *length)
+{
+    RcToken *token;
+    uint16_t value;
+
+    if (!rc_expect(compiler, RC_TOKEN_LBRACKET, "'['")) {
+        return false;
+    }
+    token = rc_peek(compiler, 0u);
+    if (!rc_constant(compiler, &value)) {
+        return false;
+    }
+    if (value == 0u) {
+        rc_error(compiler, token, "array length must be greater than zero");
+        return false;
+    }
+    if (!rc_expect(compiler, RC_TOKEN_RBRACKET, "']'")) {
+        return false;
+    }
+    *length = value;
+    return true;
+}
+
+static bool rc_collect_global_initializer(RcCompiler *compiler, RcEntity *entity)
+{
+    size_t index;
+
+    if (!rc_accept(compiler, RC_TOKEN_ASSIGN)) {
+        return true;
+    }
+    if (!entity->array) {
+        uint16_t value;
+        if (rc_peek(compiler, 0u)->kind == RC_TOKEN_LBRACE) {
+            rc_error(compiler, rc_peek(compiler, 0u),
+                     "scalar initializer must be one integer constant");
+            return false;
+        }
+        if (!rc_constant(compiler, &value)) {
+            return false;
+        }
+        entity->initializers = rc_arena_allocate(&compiler->arena, sizeof(uint16_t));
+        if (entity->initializers == NULL) {
+            rc_error(compiler, rc_peek(compiler, 0u), "out of memory");
+            return false;
+        }
+        entity->initializers[0] = value;
+        entity->initializer_count = 1u;
+        return true;
+    }
+    if (!rc_expect(compiler, RC_TOKEN_LBRACE, "'{'")) {
+        return false;
+    }
+    entity->initializers = rc_arena_allocate(&compiler->arena,
+                                             entity->element_count * sizeof(uint16_t));
+    if (entity->initializers == NULL) {
+        rc_error(compiler, rc_peek(compiler, 0u), "out of memory");
+        return false;
+    }
+    if (rc_accept(compiler, RC_TOKEN_RBRACE)) {
+        return true;
+    }
+    for (index = 0u;; ++index) {
+        uint16_t value;
+        if (!rc_constant(compiler, &value)) {
+            return false;
+        }
+        if (index >= entity->element_count) {
+            rc_error(compiler, rc_peek(compiler, 0u),
+                     "array '%s' has more than %zu initializers",
+                     entity->name, entity->element_count);
+            return false;
+        }
+        entity->initializers[index] = value;
+        entity->initializer_count = index + 1u;
+        if (rc_accept(compiler, RC_TOKEN_COMMA)) {
+            if (rc_accept(compiler, RC_TOKEN_RBRACE)) {
+                return true;
+            }
+            continue;
+        }
+        break;
+    }
+    return rc_expect(compiler, RC_TOKEN_RBRACE, "'}'");
+}
+
 static bool rc_collect_parameters(RcCompiler *compiler, size_t *count)
 {
     if (!rc_expect(compiler, RC_TOKEN_LPAREN, "'('")) {
@@ -978,6 +1081,10 @@ static bool rc_collect_parameters(RcCompiler *compiler, size_t *count)
             return false;
         }
         if (!rc_expect(compiler, RC_TOKEN_IDENTIFIER, "parameter name")) {
+            return false;
+        }
+        if (rc_peek(compiler, 0u)->kind == RC_TOKEN_LBRACKET) {
+            rc_error(compiler, rc_peek(compiler, 0u), "array parameters are not supported");
             return false;
         }
         if (*count >= RETROCC_MAX_PARAMETERS) {
@@ -1072,11 +1179,21 @@ static bool rc_collect_entities(RcCompiler *compiler)
             rc_error(compiler, name_token, "global variables must have type u16");
             return false;
         }
-        if (rc_accept(compiler, RC_TOKEN_ASSIGN)) {
-            if (!rc_constant(compiler, &entity->initializer)) {
+        if (rc_peek(compiler, 0u)->kind == RC_TOKEN_LBRACKET) {
+            if (!rc_parse_array_length(compiler, &entity->element_count)) {
                 return false;
             }
-            entity->has_initializer = true;
+            entity->array = true;
+            if (rc_peek(compiler, 0u)->kind == RC_TOKEN_LBRACKET) {
+                rc_error(compiler, rc_peek(compiler, 0u),
+                         "only one-dimensional u16 arrays are supported");
+                return false;
+            }
+        } else {
+            entity->element_count = 1u;
+        }
+        if (!rc_collect_global_initializer(compiler, entity)) {
+            return false;
         }
         if (!rc_expect(compiler, RC_TOKEN_SEMICOLON, "';'")) {
             return false;
@@ -1108,6 +1225,7 @@ static bool rc_collect_entities(RcCompiler *compiler)
 static bool rc_add_local(RcCompiler *compiler, RcEntity *local, RcToken *token)
 {
     RcEntity *current;
+    size_t words = local->array ? local->element_count : 1u;
 
     for (current = compiler->locals; current != NULL; current = current->next) {
         if (current->scope_depth <= compiler->scope_depth &&
@@ -1116,13 +1234,14 @@ static bool rc_add_local(RcCompiler *compiler, RcEntity *local, RcToken *token)
             return false;
         }
     }
-    if (compiler->frame_words >= RETROCC_MAX_FRAME_WORDS) {
+    if (words == 0u || words > RETROCC_MAX_FRAME_WORDS - compiler->frame_words) {
         rc_error(compiler, token, "function stack frame exceeds %u words",
                  RETROCC_MAX_FRAME_WORDS);
         return false;
     }
     local->kind = RC_ENTITY_LOCAL;
-    local->offset = compiler->frame_words++;
+    local->offset = compiler->frame_words;
+    compiler->frame_words += words;
     local->scope_depth = compiler->scope_depth;
     local->next = compiler->locals;
     compiler->locals = local;
@@ -1214,6 +1333,37 @@ static bool rc_parse_primary(RcCompiler *compiler, RcExpr **result)
         return true;
     }
     if (rc_accept(compiler, RC_TOKEN_LPAREN)) {
+        if (rc_peek(compiler, 0u)->kind == RC_TOKEN_IDENTIFIER &&
+            rc_peek(compiler, 1u)->kind == RC_TOKEN_RPAREN &&
+            rc_peek(compiler, 2u)->kind == RC_TOKEN_LBRACKET) {
+            RcToken *name_token = rc_take(compiler);
+            RcEntity *entity = rc_lookup(compiler, name_token->text);
+            RcExpr *expression;
+
+            if (entity == NULL) {
+                rc_error(compiler, name_token, "unknown identifier '%s'", name_token->text);
+                return false;
+            }
+            if (entity->kind != RC_ENTITY_GLOBAL && entity->kind != RC_ENTITY_LOCAL) {
+                rc_error(compiler, name_token, "parenthesized value is not an array");
+                return false;
+            }
+            if (!entity->array) {
+                rc_error(compiler, name_token, "parenthesized value is not an array");
+                return false;
+            }
+            expression = rc_expr_new(compiler, RC_EXPR_VARIABLE, name_token);
+            if (expression == NULL) {
+                rc_error(compiler, name_token, "out of memory");
+                return false;
+            }
+            expression->entity = entity;
+            if (!rc_expect(compiler, RC_TOKEN_RPAREN, "')'")) {
+                return false;
+            }
+            *result = expression;
+            return true;
+        }
         if (!rc_parse_expression(compiler, result)) {
             return false;
         }
@@ -1285,6 +1435,61 @@ static bool rc_parse_primary(RcCompiler *compiler, RcExpr **result)
     return false;
 }
 
+static bool rc_parse_postfix(RcCompiler *compiler, RcExpr **result)
+{
+    RcExpr *base;
+
+    if (!rc_parse_primary(compiler, &base)) {
+        return false;
+    }
+    while (rc_peek(compiler, 0u)->kind == RC_TOKEN_LBRACKET) {
+        RcToken *token = rc_take(compiler);
+        RcExpr *index;
+        RcExpr *expression;
+
+        if (base->kind != RC_EXPR_VARIABLE || !base->entity->array) {
+            rc_error(compiler, token, "indexing requires a one-dimensional u16 array");
+            return false;
+        }
+        compiler->uses_array_index = true;
+        if (!rc_parse_expression(compiler, &index)) {
+            return false;
+        }
+        if (rc_expr_is_void(index)) {
+            rc_error(compiler, rc_peek(compiler, 0u), "array index requires a u16 value");
+            return false;
+        }
+        if (index->kind == RC_EXPR_NUMBER && index->value >= base->entity->element_count) {
+            rc_error(compiler, token, "array index %u is outside bounds 0..%zu",
+                     (unsigned int)index->value, base->entity->element_count - 1u);
+            return false;
+        }
+        if (!rc_expect(compiler, RC_TOKEN_RBRACKET, "']'")) {
+            return false;
+        }
+        expression = rc_expr_new(compiler, RC_EXPR_INDEX, token);
+        if (expression == NULL) {
+            rc_error(compiler, token, "out of memory");
+            return false;
+        }
+        expression->entity = base->entity;
+        expression->left = base;
+        expression->right = index;
+        if (!rc_set_expression_depth(compiler, expression, base, index)) {
+            return false;
+        }
+        base = expression;
+    }
+    if (base->kind == RC_EXPR_VARIABLE && base->entity->array) {
+        rc_error(compiler, rc_peek(compiler, 0u),
+                 "array '%s' cannot be used as a u16 value; use an index",
+                 base->entity->name);
+        return false;
+    }
+    *result = base;
+    return true;
+}
+
 static bool rc_parse_unary(RcCompiler *compiler, RcExpr **result)
 {
     RcToken *token = rc_peek(compiler, 0u);
@@ -1293,7 +1498,7 @@ static bool rc_parse_unary(RcCompiler *compiler, RcExpr **result)
     RcExpr *expression;
 
     if (kind != RC_TOKEN_BANG && kind != RC_TOKEN_TILDE && kind != RC_TOKEN_MINUS) {
-        return rc_parse_primary(compiler, result);
+        return rc_parse_postfix(compiler, result);
     }
     if (compiler->parse_depth >= RETROCC_MAX_PARSE_DEPTH) {
         rc_error(compiler, token, "expression nesting exceeds %u levels",
@@ -1422,7 +1627,13 @@ static bool rc_parse_assignment(RcCompiler *compiler, RcExpr **result)
         RcExpr *expression;
 
         if (!rc_expr_is_lvalue(left)) {
-            rc_error(compiler, token, "assignment target is not a modifiable u16 lvalue");
+            if (left->kind == RC_EXPR_VARIABLE && left->entity->array) {
+                rc_error(compiler, token, "array '%s' is not assignable; assign to an element",
+                         left->entity->name);
+            } else {
+                rc_error(compiler, token,
+                         "assignment target is not a modifiable u16 lvalue");
+            }
             return false;
         }
         if (!rc_parse_expression(compiler, &right)) {
@@ -1478,10 +1689,39 @@ static void rc_emit_entity_address(RcCompiler *compiler, RcEntity *entity)
     rc_emit(compiler, "ADD\n");
 }
 
-static void rc_emit_local_store(RcCompiler *compiler, RcEntity *local,
+static void rc_gen_lvalue_address(RcCompiler *compiler, RcExpr *expression)
+{
+    size_t in_bounds_label;
+
+    if (expression->kind == RC_EXPR_VARIABLE) {
+        rc_emit_entity_address(compiler, expression->entity);
+        return;
+    }
+    if (expression->kind != RC_EXPR_INDEX) {
+        rc_error(compiler, NULL, "internal lvalue error");
+        return;
+    }
+    in_bounds_label = rc_new_label(compiler);
+    rc_emit_entity_address(compiler, expression->entity);
+    rc_push_temporary(compiler);
+    rc_gen_expression(compiler, expression->right);
+    rc_mov(compiler, "RS", "ORD0");
+    rc_ldi(compiler, (unsigned int)expression->entity->element_count, "R1");
+    rc_mov(compiler, "R1", "ORD1");
+    rc_emit(compiler, "CMP\n");
+    rc_emit(compiler, "JC __cc_%06zu\n", in_bounds_label);
+    rc_emit(compiler, "JMP __array_out_of_bounds\n");
+    rc_label(compiler, in_bounds_label);
+    rc_pop_temporary(compiler, "R2");
+    rc_mov(compiler, "R2", "ORD0");
+    rc_mov(compiler, "RS", "ORD1");
+    rc_emit(compiler, "ADD\n");
+}
+
+static void rc_emit_local_store(RcCompiler *compiler, RcEntity *local, size_t index,
                                 const char *source_register)
 {
-    size_t address_offset = local->offset + compiler->temporary_depth;
+    size_t address_offset = local->offset + index + compiler->temporary_depth;
 
     if (address_offset == 0u) {
         rc_mov(compiler, "SP", "MAR");
@@ -1492,6 +1732,13 @@ static void rc_emit_local_store(RcCompiler *compiler, RcEntity *local,
         rc_emit(compiler, "ADD\nMOV RS, MAR\n");
     }
     rc_emit(compiler, "WRT %s\n", source_register);
+}
+
+static void rc_emit_local_element_store(RcCompiler *compiler, RcEntity *local,
+                                        size_t index, uint16_t value)
+{
+    rc_ldi(compiler, value, "R0");
+    rc_emit_local_store(compiler, local, index, "R0");
 }
 
 static void rc_emit_nonzero_test(RcCompiler *compiler)
@@ -1628,7 +1875,7 @@ static void rc_gen_assignment(RcCompiler *compiler, RcExpr *expression)
 {
     RcTokenKind operation = expression->op;
 
-    rc_emit_entity_address(compiler, expression->left->entity);
+    rc_gen_lvalue_address(compiler, expression->left);
     rc_push_temporary(compiler);
     rc_gen_expression(compiler, expression->right);
     rc_push_temporary(compiler);
@@ -1666,7 +1913,8 @@ static void rc_gen_expression(RcCompiler *compiler, RcExpr *expression)
         rc_mov(compiler, "R0", "RS");
         break;
     case RC_EXPR_VARIABLE:
-        rc_emit_entity_address(compiler, expression->entity);
+    case RC_EXPR_INDEX:
+        rc_gen_lvalue_address(compiler, expression);
         rc_mov(compiler, "RS", "MAR");
         rc_emit(compiler, "RED RS\n");
         break;
@@ -1741,7 +1989,7 @@ static void rc_emit_prologue(RcCompiler *compiler, RcEntity **parameters,
     }
     for (index = 0u; index < parameter_count; ++index) {
         rc_mov(compiler, parameter_registers[index], "R6");
-        rc_emit_local_store(compiler, parameters[index], "R6");
+        rc_emit_local_store(compiler, parameters[index], 0u, "R6");
     }
 }
 
@@ -1766,6 +2014,51 @@ static void rc_emit_return_epilogue(RcCompiler *compiler, RcType type)
         rc_emit(compiler, "ADD\nMOV RS, SP\n");
     }
     rc_emit(compiler, "RET\n");
+}
+
+static bool rc_parse_local_array_initializer(RcCompiler *compiler, RcEntity *local)
+{
+    size_t index = 0u;
+
+    if (!rc_expect(compiler, RC_TOKEN_LBRACE, "'{'")) {
+        return false;
+    }
+    if (!rc_accept(compiler, RC_TOKEN_RBRACE)) {
+        for (;;) {
+            RcExpr *initializer;
+            if (index >= local->element_count) {
+                rc_error(compiler, rc_peek(compiler, 0u),
+                         "array '%s' has more than %zu initializers",
+                         local->name, local->element_count);
+                return false;
+            }
+            if (!rc_parse_expression(compiler, &initializer)) {
+                return false;
+            }
+            if (rc_expr_is_void(initializer)) {
+                rc_error(compiler, rc_peek(compiler, 0u),
+                         "array initializer requires u16 values");
+                return false;
+            }
+            rc_gen_expression(compiler, initializer);
+            rc_mov(compiler, "RS", "R0");
+            rc_emit_local_store(compiler, local, index++, "R0");
+            if (rc_accept(compiler, RC_TOKEN_COMMA)) {
+                if (rc_accept(compiler, RC_TOKEN_RBRACE)) {
+                    return true;
+                }
+                continue;
+            }
+            break;
+        }
+        if (!rc_expect(compiler, RC_TOKEN_RBRACE, "'}'")) {
+            return false;
+        }
+    }
+    while (index < local->element_count) {
+        rc_emit_local_element_store(compiler, local, index++, 0u);
+    }
+    return true;
 }
 
 static bool rc_parse_local_declaration(RcCompiler *compiler)
@@ -1796,20 +2089,39 @@ static bool rc_parse_local_declaration(RcCompiler *compiler)
         rc_error(compiler, name_token, "out of memory");
         return false;
     }
+    if (rc_peek(compiler, 0u)->kind == RC_TOKEN_LBRACKET) {
+        if (!rc_parse_array_length(compiler, &local->element_count)) {
+            return false;
+        }
+        local->array = true;
+        if (rc_peek(compiler, 0u)->kind == RC_TOKEN_LBRACKET) {
+            rc_error(compiler, rc_peek(compiler, 0u),
+                     "only one-dimensional u16 arrays are supported");
+            return false;
+        }
+    } else {
+        local->element_count = 1u;
+    }
     if (!rc_add_local(compiler, local, name_token)) {
         return false;
     }
     if (rc_accept(compiler, RC_TOKEN_ASSIGN)) {
-        if (!rc_parse_expression(compiler, &expression)) {
-            return false;
+        if (local->array) {
+            if (!rc_parse_local_array_initializer(compiler, local)) {
+                return false;
+            }
+        } else {
+            if (!rc_parse_expression(compiler, &expression)) {
+                return false;
+            }
+            if (rc_expr_is_void(expression)) {
+                rc_error(compiler, name_token, "local initializer requires a u16 value");
+                return false;
+            }
+            rc_gen_expression(compiler, expression);
+            rc_mov(compiler, "RS", "R0");
+            rc_emit_local_store(compiler, local, 0u, "R0");
         }
-        if (rc_expr_is_void(expression)) {
-            rc_error(compiler, name_token, "local initializer requires a u16 value");
-            return false;
-        }
-        rc_gen_expression(compiler, expression);
-        rc_mov(compiler, "RS", "R0");
-        rc_emit_local_store(compiler, local, "R0");
     }
     return rc_expect(compiler, RC_TOKEN_SEMICOLON, "';'");
 }
@@ -2103,6 +2415,10 @@ static bool rc_parse_body_parameters(RcCompiler *compiler, RcEntity **parameters
         if (!rc_expect(compiler, RC_TOKEN_IDENTIFIER, "parameter name")) {
             return false;
         }
+        if (rc_peek(compiler, 0u)->kind == RC_TOKEN_LBRACKET) {
+            rc_error(compiler, rc_peek(compiler, 0u), "array parameters are not supported");
+            return false;
+        }
         if (rc_reserved_name(name_token->text)) {
             rc_error(compiler, name_token, "identifier '%s' is reserved", name_token->text);
             return false;
@@ -2118,6 +2434,7 @@ static bool rc_parse_body_parameters(RcCompiler *compiler, RcEntity **parameters
             return false;
         }
         memset(local, 0, sizeof(*local));
+        local->element_count = 1u;
         local->name = rc_arena_copy(&compiler->arena, name_token->text);
         if (local->name == NULL) {
             rc_error(compiler, name_token, "out of memory");
@@ -2246,13 +2563,21 @@ static bool rc_generate(RcCompiler *compiler)
             return false;
         }
     }
+    if (compiler->uses_array_index) {
+        rc_emit(compiler, "__array_out_of_bounds:\nLDI FFFFh, R0\nMOV R0, RS\nHLT\n");
+    }
     rc_emit(compiler, "__stack_overflow:\nLDI %04Xh, R0\nMOV R0, RS\nHLT\n",
             RETROCC_STACK_GUARD);
     {
         RcEntity *global;
         for (global = compiler->globals; global != NULL; global = global->next) {
-            uint16_t value = global->has_initializer ? global->initializer : 0u;
-            rc_emit(compiler, "%s:\n.word %04Xh\n", global->name, value);
+            size_t index;
+            rc_emit(compiler, "%s:\n", global->name);
+            for (index = 0u; index < global->element_count; ++index) {
+                uint16_t value = index < global->initializer_count
+                                     ? global->initializers[index] : 0u;
+                rc_emit(compiler, ".word %04Xh\n", value);
+            }
         }
     }
     rc_emit(compiler, "__stack_limit:\n.word %04Xh\n", RETROCC_STACK_GUARD);

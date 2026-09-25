@@ -77,6 +77,23 @@ expect_failure() {
     fi
 }
 
+expect_success() {
+    source=$1
+    output=$2
+    rm -f "$output"
+    if ! "$RETROCC" "$source" -o "$output" > "$TEST_ROOT/success.log" 2>&1; then
+        print_file "$TEST_ROOT/success.log" >&2
+        fail "expected compilation to succeed for $source"
+    fi
+    if [ ! -s "$output" ]; then
+        fail "successful compilation produced no output for $source"
+    fi
+    if ! "$ASM" "$output" -o "$output.bin" > "$TEST_ROOT/success-assemble.log" 2>&1; then
+        print_file "$TEST_ROOT/success-assemble.log" >&2
+        fail "expected assembled output for $source"
+    fi
+}
+
 if [ -n "${RETROCC:-}" ]; then
     :
 else
@@ -95,6 +112,13 @@ run_case void 0007
 run_case scopes 0000
 run_case while 0005
 run_case stack_guard 8400
+run_case arrays 005A
+run_case array_globals 0015
+run_case array_compound 0225
+run_case array_bounds FFFF
+run_case array_bounds_read FFFF
+run_case array_bounds_global FFFF
+run_case array_syntax 0007
 
 printf '%s\n' 'u16 main(void) { return missing; }' > "$TEST_ROOT/unknown.rc"
 printf '%s\n' 'u16 add(u16 a, u16 b) { return a + b; }' 'u16 main(void) { return add(1); }' > "$TEST_ROOT/arity.rc"
@@ -113,7 +137,17 @@ printf '%s\n' 'u16 main(void) { return 0; }' '/*/' > "$TEST_ROOT/comment.rc"
 printf '%s\n' 'u16 f(u16 a) { return a; }' 'u16 main(void) { return f(1,2,3,4,5,6,7); }' > "$TEST_ROOT/argument-limit.rc"
 printf '%s\n' 'void touch(void) { }' 'u16 main(void) { for (touch(); 0; ) { } return 0; }' > "$TEST_ROOT/for-init-void.rc"
 printf '%s\n' 'void touch(void) { }' 'u16 main(void) { for (; 0; touch()) { } return 0; }' > "$TEST_ROOT/for-step-void.rc"
-python3 - "$TEST_ROOT/deep.rc" "$TEST_ROOT/nul.rc" "$TEST_ROOT/frame.rc" "$TEST_ROOT/flat.rc" "$TEST_ROOT/assign.rc" "$TEST_ROOT/call.rc" <<'PY'
+printf '%s\n' 'u16 values[0];' 'u16 main(void) { return 0; }' > "$TEST_ROOT/array-zero.rc"
+printf '%s\n' 'u16 values[1][2];' 'u16 main(void) { return 0; }' > "$TEST_ROOT/array-multidimensional.rc"
+printf '%s\n' 'void values[2];' 'u16 main(void) { return 0; }' > "$TEST_ROOT/array-void.rc"
+printf '%s\n' 'u16 main(void) { u16 values[2]; return values; }' > "$TEST_ROOT/array-bare.rc"
+printf '%s\n' 'u16 main(void) { u16 values[2] = 1; return 0; }' > "$TEST_ROOT/array-scalar-initializer.rc"
+printf '%s\n' 'u16 main(void) { u16 values[1] = {1, 2}; return values[0]; }' > "$TEST_ROOT/array-extra-initializer.rc"
+printf '%s\n' 'void touch(void) { }' 'u16 main(void) { u16 values[2]; return values[touch()]; }' > "$TEST_ROOT/array-void-index.rc"
+printf '%s\n' 'u16 first(u16 values[2]) { return values[0]; }' 'u16 main(void) { return 0; }' > "$TEST_ROOT/array-parameter.rc"
+printf '%s\n' 'u16 main(void) { u16 values[2]; return values[0][0]; }' > "$TEST_ROOT/array-second-dimension.rc"
+printf '%s\n' 'u16 main(void) { u16 values[2]; return values[2]; }' > "$TEST_ROOT/array-constant-bounds.rc"
+python3 - "$TEST_ROOT/deep.rc" "$TEST_ROOT/nul.rc" "$TEST_ROOT/frame.rc" "$TEST_ROOT/flat.rc" "$TEST_ROOT/assign.rc" "$TEST_ROOT/call.rc" "$TEST_ROOT/array-frame.rc" "$TEST_ROOT/array-program-limit.rc" "$TEST_ROOT/scalar-boundary.rc" "$TEST_ROOT/scalar-boundary-over.rc" <<'PY'
 import sys
 from pathlib import Path
 Path(sys.argv[1]).write_text("u16 main(void) { return " + "(" * 300 + "1" + ")" * 300 + "; }\n")
@@ -122,6 +156,10 @@ Path(sys.argv[3]).write_text("u16 main(void) {" + "".join(f"u16 v{i};" for i in 
 Path(sys.argv[4]).write_text("u16 main(void) { return " + "+".join(["1"] * 100000) + "; }\n")
 Path(sys.argv[5]).write_text("u16 main(void) { u16 x; return " + "x=" * 100000 + "1; }\n")
 Path(sys.argv[6]).write_text("u16 f(u16 x) { return x; } u16 main(void) { return " + "f(" * 300 + "1" + ")" * 300 + "; }\n")
+Path(sys.argv[7]).write_text("u16 main(void) { u16 values[8193]; return 0; }\n")
+Path(sys.argv[8]).write_text("u16 values[32767]; u16 main(void) { return 0; }\n")
+Path(sys.argv[9]).write_text("".join(f"u16 g{i};" for i in range(60)) + "u16 main(void) { u16 x = 0;" + "x = x + 1;" * 1209 + "return x; }\n")
+Path(sys.argv[10]).write_text("".join(f"u16 g{i};" for i in range(61)) + "u16 main(void) { u16 x = 0;" + "x = x + 1;" * 1209 + "return x; }\n")
 PY
 
 expect_failure "error: unknown identifier 'missing'" "$TEST_ROOT/unknown.rc" "$TEST_ROOT/unknown.out"
@@ -141,12 +179,26 @@ expect_failure 'unterminated block comment' "$TEST_ROOT/comment.rc" "$TEST_ROOT/
 expect_failure 'a call may pass at most 6 arguments' "$TEST_ROOT/argument-limit.rc" "$TEST_ROOT/argument-limit.out"
 expect_failure 'for initializer cannot produce void' "$TEST_ROOT/for-init-void.rc" "$TEST_ROOT/for-init-void.out"
 expect_failure 'for step cannot produce void' "$TEST_ROOT/for-step-void.rc" "$TEST_ROOT/for-step-void.out"
+expect_failure 'array length must be greater than zero' "$TEST_ROOT/array-zero.rc" "$TEST_ROOT/array-zero.out"
+expect_failure 'only one-dimensional u16 arrays are supported' "$TEST_ROOT/array-multidimensional.rc" "$TEST_ROOT/array-multidimensional.out"
+expect_failure 'global variables must have type u16' "$TEST_ROOT/array-void.rc" "$TEST_ROOT/array-void.out"
+expect_failure "array 'values' cannot be used as a u16 value" "$TEST_ROOT/array-bare.rc" "$TEST_ROOT/array-bare.out"
+expect_failure "expected '{', found '1'" "$TEST_ROOT/array-scalar-initializer.rc" "$TEST_ROOT/array-scalar-initializer.out"
+expect_failure "array 'values' has more than 1 initializers" "$TEST_ROOT/array-extra-initializer.rc" "$TEST_ROOT/array-extra-initializer.out"
+expect_failure 'array index requires a u16 value' "$TEST_ROOT/array-void-index.rc" "$TEST_ROOT/array-void-index.out"
+expect_failure 'array parameters are not supported' "$TEST_ROOT/array-parameter.rc" "$TEST_ROOT/array-parameter.out"
+expect_failure 'indexing requires a one-dimensional u16 array' "$TEST_ROOT/array-second-dimension.rc" "$TEST_ROOT/array-second-dimension.out"
+expect_failure 'array index 2 is outside bounds 0..1' "$TEST_ROOT/array-constant-bounds.rc" "$TEST_ROOT/array-constant-bounds.out"
 expect_failure 'expression nesting exceeds 256 levels' "$TEST_ROOT/deep.rc" "$TEST_ROOT/deep.out"
 expect_failure 'expression nesting exceeds 256 levels' "$TEST_ROOT/flat.rc" "$TEST_ROOT/flat.out"
 expect_failure 'expression nesting exceeds 256 levels' "$TEST_ROOT/assign.rc" "$TEST_ROOT/assign.out"
 expect_failure 'expression nesting exceeds 256 levels' "$TEST_ROOT/call.rc" "$TEST_ROOT/call.out"
 expect_failure 'source contains NUL' "$TEST_ROOT/nul.rc" "$TEST_ROOT/nul.out"
 expect_failure 'function stack frame exceeds 8192 words' "$TEST_ROOT/frame.rc" "$TEST_ROOT/frame.out"
+expect_failure 'function stack frame exceeds 8192 words' "$TEST_ROOT/array-frame.rc" "$TEST_ROOT/array-frame.out"
+expect_failure 'generated program exceeds reserved stack boundary' "$TEST_ROOT/array-program-limit.rc" "$TEST_ROOT/array-program-limit.out"
+expect_success "$TEST_ROOT/scalar-boundary.rc" "$TEST_ROOT/scalar-boundary.asm"
+expect_failure 'generated program exceeds reserved stack boundary' "$TEST_ROOT/scalar-boundary-over.rc" "$TEST_ROOT/scalar-boundary-over.out"
 
 if "$RETROCC" --help > "$TEST_ROOT/help.out" 2>&1; then
     :

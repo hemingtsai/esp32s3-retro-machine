@@ -1,0 +1,21 @@
+u16 pick(u16 value)
+{
+    return value;
+}
+
+u16 main(void)
+{
+    u16 values[4] = {10, 20, 30};
+    u16 index = 0;
+    u16 sum = 0;
+
+    values[pick(1)] = pick(7);
+    values[pick(2)] += 5;
+    values[0] = values[1] + values[2];
+
+    for (index = 0; index < 4; index += 1) {
+        values[index] += index;
+        sum += values[index];
+    }
+    return sum;
+}
