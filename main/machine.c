@@ -1,5 +1,12 @@
 #include "machine.h"
 
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
+
+static void execute_alu(struct Machine *machine, const struct Instruction *instruction);
+
 const char *const register_names[16] = {
     "ORD0", "ORD1", "PC", "IR", "MAR", "SP", "RS", "DISPLAY",
     "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"};
@@ -65,8 +72,6 @@ void write_register(struct Machine *machine, enum Register reg, uint16_t value)
 {
   machine->reg[reg] = value;
 }
-
-bool step_machine(struct Machine *machine);
 
 static uint16_t fetch(const uint16_t memory[], uint16_t pc)
 {
@@ -149,8 +154,19 @@ void panel_mnxt(struct Machine *machine)
 void panel_run(struct Machine *machine)
 {
   machine->running = true;
+  uint32_t steps = 0;
   while (machine->running && step_machine(machine))
-    ;
+  {
+    if (++steps >= MACHINE_RUN_STEP_LIMIT)
+    {
+      MACHINE_LOG("RUN aborted: step limit %lu reached", (unsigned long)steps);
+      break;
+    }
+#ifdef ESP_PLATFORM
+    if ((steps & 0xFFFF) == 0)
+      vTaskDelay(1);
+#endif
+  }
   machine->running = false;
 }
 
@@ -247,9 +263,6 @@ static void execute_data(struct Machine *machine, const struct Instruction *inst
     break;
   }
 }
-
-static void execute_data(struct Machine *machine, const struct Instruction *instruction);
-static void execute_alu(struct Machine *machine, const struct Instruction *instruction);
 
 static bool jump_taken(const struct Machine *machine, enum Opcode opcode)
 {
@@ -473,6 +486,13 @@ bool step_machine(struct Machine *machine)
 
 void run_machine(struct Machine *machine)
 {
+  uint32_t steps = 0;
   while (step_machine(machine))
-    ;
+  {
+    if (++steps >= MACHINE_RUN_STEP_LIMIT)
+    {
+      MACHINE_LOG("RUN aborted: step limit %lu reached", (unsigned long)steps);
+      break;
+    }
+  }
 }

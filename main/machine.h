@@ -15,6 +15,8 @@
 
 #define MEMORY_WORD_COUNT 0x10000
 
+#define MACHINE_RUN_STEP_LIMIT 10000000UL
+
 enum Register
 {
   ORD0 = 0b0000,

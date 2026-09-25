@@ -57,7 +57,10 @@ static void command_read(int argc, char *argv[], struct Machine *machine)
     count = 1;
 
   for (uint16_t i = 0; i < count; i++)
-    MACHINE_LOG("%04X: %04X", (uint16_t)(address + i), machine->memory[address + i]);
+  {
+    uint16_t cursor = (uint16_t)(address + i);
+    MACHINE_LOG("%04X: %04X", cursor, machine->memory[cursor]);
+  }
 }
 
 static void command_write(int argc, char *argv[], struct Machine *machine)
