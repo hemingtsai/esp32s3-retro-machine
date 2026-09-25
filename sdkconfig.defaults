@@ -1,0 +1,8 @@
+# Target chip
+CONFIG_IDF_TARGET="esp32s3"
+
+# Serial console REPL
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# FreeRTOS tick
+CONFIG_FREERTOS_HZ=100
