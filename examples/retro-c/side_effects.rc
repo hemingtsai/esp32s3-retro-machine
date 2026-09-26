@@ -1,0 +1,25 @@
+u16 total = 0;
+u16 probe_calls = 0;
+
+void accumulate(u16 value)
+{
+    total += value;
+}
+
+u16 probe(void)
+{
+    probe_calls += 1;
+    return 1;
+}
+
+u16 main(void)
+{
+    accumulate(7);
+    if (0 && probe()) {
+        return 0xffff;
+    }
+    if (1 || probe()) {
+        accumulate(5);
+    }
+    return (total << 8) | probe_calls;
+}

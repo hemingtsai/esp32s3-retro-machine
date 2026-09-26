@@ -411,7 +411,35 @@ ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
 rm -rf "$build_dir"
 ```
 
-## 11. 维护新语法
+## 11. 示例
+
+`examples/retro-c/` 下的示例覆盖各项语言特性。每个示例的 `main` 都返回可断言的结果，
+运行结束后该值保留在 `RS` 中，可用于自动化校验。
+
+| 示例 | 展示内容 | `RS` |
+| --- | --- | --- |
+| `add.rc` | 函数定义、参数、返回值 | `002A` |
+| `array_scan.rc` | 全局数组、动态下标、最值遍历 | `272A` |
+| `bitwise.rc` | 位运算、移位、16-bit 位序反转 | `2C48` |
+| `bounds_guard.rc` | 局部数组动态越界保护 | `FFFF` |
+| `fibonacci.rc` | 递归与递归深度 | `0037` |
+| `prime_sum.rc` | `while`、`for`、取模与素数判定 | `004D` |
+| `side_effects.rc` | `void` 函数、全局状态、`&&` 与 `\|\|` 短路 | `0C00` |
+| `simple_sort.rc` | 冒泡排序、原地交换、有序性校验 | `001F` |
+
+编译并运行单个示例：
+
+```sh
+mkdir -p build
+cc -std=c11 -Wall -Wextra -Werror -Wpedantic tools/retrocc.c -o build/retrocc
+build/retrocc examples/retro-c/fibonacci.rc -o build/fibonacci.asm
+```
+
+`sh tests/test_examples.sh ASSEMBLER BUILD_DIR` 会编译、汇编、运行全部示例并校验 `RS` 与停机状态；
+`sh tests/run_tests.sh` 会自动包含这一步。
+
+## 12. 维护
+新语法
 
 增加语言功能时建议按以下顺序：
 

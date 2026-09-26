@@ -1,0 +1,31 @@
+u16 remainder(u16 value, u16 divisor)
+{
+    while (value >= divisor) {
+        value -= divisor;
+    }
+    return value;
+}
+
+u16 is_prime(u16 value)
+{
+    if (value < 2) {
+        return 0;
+    }
+    for (u16 divisor = 2; divisor < value; divisor += 1) {
+        if (remainder(value, divisor) == 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+u16 main(void)
+{
+    u16 total = 0;
+    for (u16 value = 2; value < 20; value += 1) {
+        if (is_prime(value)) {
+            total += value;
+        }
+    }
+    return total;
+}

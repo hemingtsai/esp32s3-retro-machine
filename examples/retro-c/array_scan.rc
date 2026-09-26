@@ -1,0 +1,30 @@
+u16 values[6] = {3, 17, 8, 42, 11, 25};
+
+u16 minimum(u16 count)
+{
+    u16 result = values[0];
+    for (u16 index = 1; index < count; index += 1) {
+        if (values[index] < result) {
+            result = values[index];
+        }
+    }
+    return result;
+}
+
+u16 maximum(u16 count)
+{
+    u16 result = values[0];
+    for (u16 index = 1; index < count; index += 1) {
+        if (values[index] > result) {
+            result = values[index];
+        }
+    }
+    return result;
+}
+
+u16 main(void)
+{
+    u16 low = minimum(6);
+    u16 high = maximum(6);
+    return ((high - low) << 8) | high;
+}

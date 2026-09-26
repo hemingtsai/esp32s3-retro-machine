@@ -1,0 +1,42 @@
+u16 raw_data[8] = {4, 5, 2, 6, 2, 5, 2, 5};
+
+void bubble_sort(u16 count)
+{
+    for (u16 left = 0; left < count; left += 1) {
+        for (u16 right = 0; right + 1 < count - left; right += 1) {
+            if (raw_data[right] > raw_data[right + 1]) {
+                u16 temporary = raw_data[right];
+                raw_data[right] = raw_data[right + 1];
+                raw_data[right + 1] = temporary;
+            }
+        }
+    }
+}
+
+u16 is_sorted(u16 count)
+{
+    for (u16 index = 1; index < count; index += 1) {
+        if (raw_data[index] < raw_data[index - 1]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+u16 sorted_sum(u16 count)
+{
+    u16 sum = 0;
+    for (u16 index = 0; index < count; index += 1) {
+        sum += raw_data[index];
+    }
+    return sum;
+}
+
+u16 main(void)
+{
+    bubble_sort(8);
+    if (!is_sorted(8)) {
+        return 0xffff;
+    }
+    return sorted_sum(8);
+}

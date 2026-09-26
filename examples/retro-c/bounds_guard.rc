@@ -1,0 +1,7 @@
+u16 values[2] = {10, 20};
+
+u16 main(void)
+{
+    u16 index = 2;
+    return values[index];
+}

@@ -1,0 +1,12 @@
+u16 fibonacci(u16 index)
+{
+    if (index < 2) {
+        return index;
+    }
+    return fibonacci(index - 1) + fibonacci(index - 2);
+}
+
+u16 main(void)
+{
+    return fibonacci(10);
+}
