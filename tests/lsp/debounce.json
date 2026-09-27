@@ -1,0 +1,22 @@
+[
+  {
+    "method": "initialize"
+  },
+  {
+    "notification": "textDocument/didOpen",
+    "text": "u16 main(void)\n{\n    return oops;\n}\n",
+    "uri": "file:///lsp-debounce.rc"
+  },
+  {
+    "wait": 0.6
+  },
+  {
+    "notification": "textDocument/didChange",
+    "text": "u16 main(void)\n{\n    return 0;\n}\n",
+    "uri": "file:///lsp-debounce.rc",
+    "version": 2
+  },
+  {
+    "wait": 0.6
+  }
+]

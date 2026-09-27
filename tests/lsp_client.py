@@ -11,6 +11,7 @@ The scenario is a JSON array of steps. Each step is one of:
      "text": "inline source", "uri": "optional-uri"}
     {"method": "textDocument/documentSymbol"}
     {"method": "textDocument/hover", "line": 3, "character": 5}
+    {"wait": 0.4}
     {"raw": "hex encoded bytes sent before anything else"}
 
 Every request result is flattened into `key=value` lines using dotted keys and
@@ -22,8 +23,10 @@ server is printed as `exitCode=N`.
 import argparse
 import binascii
 import json
+import select
 import subprocess
 import sys
+import time
 
 
 def frame(payload):
@@ -124,6 +127,17 @@ class Client:
         else:
             self.lines.append("%s=%s" % (prefix, value))
 
+    def wait(self, seconds):
+        deadline = time.time() + seconds
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return
+            ready, _, _ = select.select([self.process.stdout], [], [], remaining)
+            if not ready:
+                return
+            self.note(self.read())
+
     def close(self, expect_exit_zero=True):
         self.request("shutdown", {})
         self.notify("exit", {})
@@ -152,8 +166,9 @@ def main():
     if arguments.garbage:
         client.send_raw(binascii.unhexlify(arguments.garbage))
     for index, step in enumerate(steps):
-        label = "step %d (%s)" % (index, step.get("method") or step.get("notification")
-                                 or "raw")
+        if "wait" in step:
+            client.wait(step["wait"])
+            continue
         if "raw" in step:
             client.send_raw(binascii.unhexlify(step["raw"]))
             continue

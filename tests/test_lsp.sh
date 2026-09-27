@@ -192,6 +192,13 @@ expect utf16 'tokens[6].type' 7
 expect utf16 'tokens[7].line' 3
 expect utf16 'tokens[7].type' 5
 
+run_scenario debounce
+expect debounce diagnostic[0].count 1
+expect debounce diagnostic[0].item[0].message "unknown identifier 'oops'"
+expect debounce diagnostic[0].item[0].start.line 2
+expect debounce diagnostic[1].count 0
+expect debounce exitCode 0
+
 run_scenario robust
 expect robust diagnostic[0].count 0
 expect robust symbols[0].name add

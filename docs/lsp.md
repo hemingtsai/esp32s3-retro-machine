@@ -132,6 +132,7 @@ sh tests/test_lsp.sh ASSEMBLER BUILD_DIR
 | `arrays.json` | 握手与能力、诊断、符号树、悬浮、跳转、补全、签名帮助、未知方法 |
 | `diagnostics.json` | 语法错误定位、`didChange` 后重新诊断、`didClose` 清理 |
 | `utf16.json` | 中文注释的 UTF-16 位置换算 |
+| `debounce.json` | 只输入不发请求时，防抖到期后自动推送诊断 |
 | `robust.json` | 畸形头部块、非法 JSON 消息体、额外头部字段后仍能正常工作 |
 
 `sh tests/run_tests.sh` 会自动包含这一步。用 sanitizer 运行时沿用与其他宿主工具
