@@ -70,9 +70,16 @@ async function buildTools(context) {
         return building;
     }
     const { root } = toolchain(context);
+    const tools = toolPaths(context);
+    const absent = tools.filter((tool) => !fs.existsSync(tool.source));
+    if (absent.length !== 0) {
+        throw new Error(
+            `cannot find ${absent.map((tool) => path.relative(root, tool.source)).join(' and ')} ` +
+            `under ${root}; point retro-c.serverPath and retro-c.compilerPath at existing binaries`);
+    }
+    fs.mkdirSync(path.join(root, 'build'), { recursive: true });
     building = (async () => {
-        fs.mkdirSync(path.join(root, 'build'), { recursive: true });
-        for (const tool of toolPaths(context)) {
+        for (const tool of tools) {
             if (fs.existsSync(tool.output)) {
                 continue;
             }

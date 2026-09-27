@@ -108,6 +108,20 @@ editors/vscode-retrolsp/
 调试扩展本身时按 `F5`，或用 `Developer: Install Extension from Location...` 安装该目录。
 扩展从自身路径向上两级定位仓库根目录，因此只适用于本仓库内的开发，不适用于从市场安装。
 
+### 打包 VSIX
+
+扩展不依赖 npm 包，但打包仍需要官方的 `vsce`，用 `npx` 临时取用即可，不必写入仓库：
+
+```sh
+cd editors/vscode-retrolsp
+npx --yes @vscode/vsce package --no-dependencies --out ../../build/retro-c.vsix
+code --install-extension ../../build/retro-c.vsix
+```
+
+`.vscodeignore` 排除 `build/`、`node_modules/` 和已生成的 `*.vsix`，测试脚本会打进包里，
+因此装好的 VSIX 解压后仍可运行 `node extension/test/run.js` 验证产物。仓库没有 LICENSE 文件，
+`vsce` 会给出相应警告，不影响打包。
+
 ## 支持的能力
 
 | 能力 | 说明 |

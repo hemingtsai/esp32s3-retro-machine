@@ -4,6 +4,11 @@
   "description": "Retro C language support: semantic highlighting, compiler diagnostics, outline, hover, go to definition, completion and signature help.",
   "version": "0.1.0",
   "publisher": "hemingtsai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hemingtsai/esp32s3-retro-machine.git",
+    "directory": "editors/vscode-retrolsp"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
