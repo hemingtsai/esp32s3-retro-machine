@@ -53,6 +53,57 @@ for manifest in package.json language-configuration.json syntaxes/retro-c.tmLang
     fi
 done
 
+if ! python3 - "$EXTENSION/syntaxes/retro-c.tmLanguage.json" 2> "$TEST_ROOT/grammar.log" <<'PY'
+import collections
+import json
+import sys
+
+
+def reject_duplicates(pairs):
+    keys = [key for key, _ in pairs]
+    repeated = sorted(key for key, count in collections.Counter(keys).items() if count > 1)
+    if repeated:
+        raise SystemExit("duplicate JSON key: " + ", ".join(repeated))
+    return dict(pairs)
+
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    grammar = json.load(handle, object_pairs_hook=reject_duplicates)
+
+repository = grammar["repository"]
+unresolved = []
+
+
+def walk(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "include" and isinstance(value, str) and value.startswith("#"):
+                if value[1:] not in repository:
+                    unresolved.append(value)
+            walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            walk(value)
+
+
+walk(grammar)
+if unresolved:
+    raise SystemExit("unresolved include: " + ", ".join(sorted(set(unresolved))))
+for key, rule in repository.items():
+    if "match" not in rule and "begin" not in rule and "patterns" not in rule:
+        raise SystemExit(f"rule {key} declares neither match, begin nor patterns")
+
+comments = repository["comment"]["patterns"]
+kinds = sorted(rule.get("name", rule.get("begin", "")) for rule in comments)
+if kinds != ["comment.block.retro-c", "comment.line.double-slash.retro-c"]:
+    raise SystemExit("comment rules must cover line and block comments, got " + ", ".join(kinds))
+PY
+then
+    printf 'FAIL(grammar) retro-c.tmLanguage.json is not well formed\n'
+    cat "$TEST_ROOT/grammar.log"
+    exit 1
+fi
+
 if ! python3 -c "import json,sys
 manifest = json.load(open(sys.argv[1]))
 language = manifest['contributes']['languages'][0]

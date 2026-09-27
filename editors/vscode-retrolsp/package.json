@@ -1,7 +1,7 @@
 {
   "name": "retro-c",
   "displayName": "Retro C",
-  "description": "Retro C language support: semantic highlighting, compiler diagnostics, outline, hover, go to definition, completion and signature help.",
+  "description": "Retro C language support: semantic highlighting, compiler diagnostics, outline, hover, go to definition, completion and signature help. Requires a POSIX host (Linux or macOS).",
   "version": "0.1.0",
   "publisher": "hemingtsai",
   "repository": {

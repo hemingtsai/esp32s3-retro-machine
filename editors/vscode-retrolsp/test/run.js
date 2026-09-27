@@ -76,6 +76,11 @@ function testConvert() {
         { line: 2, character: 1, length: 1, type: 5 }
     ]);
     check('semantic tokens reject garbage', convert.decodeSemanticTokens('nope'), []);
+    check('missing tool on posix', convert.toolFailureMessage('darwin', 'ENOENT', 'cc'),
+        'cc was not found');
+    check('missing tool on windows', convert.toolFailureMessage('win32', 'ENOENT', 'cc'),
+        `cc was not found. On Windows, ${convert.WINDOWS_NOTICE}`);
+    check('other failure code', convert.toolFailureMessage('linux', 'EACCES', 'cc'), 'cc: EACCES');
 }
 
 function wait(milliseconds) {

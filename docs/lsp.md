@@ -163,8 +163,42 @@ LSP 使用 0 起始、UTF-16 code unit 的位置，服务器按行把字节偏�
 因此中文注释不会让高亮和诊断错位。语义 token 的长度同样是 UTF-16 单元数，
 跨行块注释会按行拆成多个 token。
 
+## 平台支持
+
+语言服务器只支持 POSIX 主机，即 Linux 和 macOS（含 Intel 与 Apple Silicon）。
+
+VSIX 扩展本身没有平台限制：`editors/vscode-retrolsp/package.json` 不声明 `os` 或 `cpu`，
+扩展是纯 JavaScript，没有原生模块也没有 npm 依赖，因此在任何平台都能安装。限制来自它
+启动的两个本地程序。
+
+| 程序 | 平台要求 | 原因 |
+| --- | --- | --- |
+| `retrocc` | 任意 C11 编译器 | 只使用 ISO C11 头文件和函数，不依赖操作系统 |
+| `retrolsp` | POSIX | 见下 |
+
+`retrolsp` 用到以下接口，Windows 原生环境都不具备：
+
+| 接口 | 位置 | Windows 缺少的替代 |
+| --- | --- | --- |
+| `popen` 与 `sh -c` | `tools/retrolsp.c:1261` | 没有 `/bin/sh`，`popen` 走 cmd.exe，引号语义不同 |
+| 硬编码 `/tmp` 临时文件 | `tools/retrolsp.c:1235` | `/tmp` 不存在，应使用 `TMP` |
+| `read(STDIN_FILENO)` 与 `poll` | `tools/retrolsp.c:946`、`2478` | 需要 `_read` 与 Windows 等待对象 |
+| `getpid` 与 `clock_gettime` | `tools/retrolsp.c:1235`、`905` | 需要 `_getpid` 与 `QueryPerformanceCounter` |
+
+因此在 Windows 上安装后，扩展会在构建阶段失败，并提示只支持 Linux 和 macOS。移植时
+编译器无需改动，工作量集中在 `retrolsp.c` 的四条 `#ifdef _WIN32` 分支。
+
+另外两个与平台相关的注意点：
+
+- 扩展在 `client.js` 的 `initialize` 中用字符串拼接 `file://` 前缀来构造 `rootUri`，
+  Windows 上会得到 `file://C:\…` 这种非法 URI。改成 `url.pathToFileURL` 即可，
+  留到移植时一并处理。
+- macOS Gatekeeper 只影响下载来的预编译二进制；用 `cc` 在本机构建的 `build/retrolsp`
+  不受影响。
+
 ## 已知限制
 
+- 平台只支持 Linux 和 macOS，详见上一节的「平台支持」。
 - 编译器遇到第一个错误就停止，因此每次只推送一条诊断。这是编译器的既有行为，
   语言服务器不做错误恢复。
 - 补全按记录的作用域区间判断可见性。函数体、`for` 语句和花括号块各有作用域，

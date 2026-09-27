@@ -56,11 +56,15 @@ function missingTools(context) {
 function run(command, args, cwd) {
     return new Promise((resolve, reject) => {
         execFile(command, args, { cwd, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error !== null) {
-                reject(new Error(`${stderr.trim() || error.message}`));
+            if (error === null) {
+                resolve(stdout);
                 return;
             }
-            resolve(stdout);
+            if (error.code === 'ENOENT') {
+                reject(new Error(convert.toolFailureMessage(process.platform, error.code, command)));
+                return;
+            }
+            reject(new Error(stderr.trim() || error.message));
         });
     });
 }

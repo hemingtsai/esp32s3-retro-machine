@@ -94,6 +94,19 @@ function symbolKind(value) {
     return mapped === undefined ? 12 : mapped;
 }
 
+const WINDOWS_NOTICE = 'the Retro C language server currently supports Linux and macOS only; ' +
+    'see docs/lsp.md';
+
+function toolFailureMessage(platform, code, target) {
+    if (code !== 'ENOENT') {
+        return `${target}: ${code}`;
+    }
+    if (platform === 'win32') {
+        return `${target} was not found. On Windows, ${WINDOWS_NOTICE}`;
+    }
+    return `${target} was not found`;
+}
+
 function positionOf(value) {
     const position = value || {};
     return { line: position.line || 0, character: position.character || 0 };
@@ -150,6 +163,7 @@ function decodeSemanticTokens(data) {
 module.exports = {
     TOKEN_TYPES,
     TOKEN_MODIFIERS,
+    WINDOWS_NOTICE,
     diagnosticSeverity,
     rangeOf,
     selectionRangeOf,
@@ -157,5 +171,6 @@ module.exports = {
     symbolKind,
     positionOf,
     hoverText,
+    toolFailureMessage,
     decodeSemanticTokens
 };

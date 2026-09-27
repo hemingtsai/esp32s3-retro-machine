@@ -13,11 +13,11 @@
   ],
   "repository": {
     "comment": {
-      "name": "comment.line.double-slash.retro-c",
-      "match": "//.*$"
-    },
-    "comment": {
       "patterns": [
+        {
+          "name": "comment.line.double-slash.retro-c",
+          "match": "//.*$"
+        },
         {
           "name": "comment.block.retro-c",
           "begin": "/\\*",
