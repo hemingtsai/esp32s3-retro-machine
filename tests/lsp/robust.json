@@ -1,0 +1,33 @@
+[
+  {
+    "raw": "676172626167650d0a0d0a"
+  },
+  {
+    "raw": "436f6e74656e742d4c656e6774683a2031310d0a0d0a7b6e6f74206a736f6e217d"
+  },
+  {
+    "raw": "436f6e74656e742d4c656e6774683a20320d0a436f6e74656e742d547970653a206170706c69636174696f6e2f7673636f64652d6a736f6e7270630d0a0d0a7b7d"
+  },
+  {
+    "raw": "436f6e74656e742d4c656e6774683a2032380d0a0d0a7b226a736f6e727063223a2022322e30222c20226964223a2039397d"
+  },
+  {
+    "method": "initialize"
+  },
+  {
+    "notification": "textDocument/didOpen",
+    "file": "examples/retro-c/add.rc"
+  },
+  {
+    "method": "textDocument/documentSymbol",
+    "file": "examples/retro-c/add.rc",
+    "key": "symbols"
+  },
+  {
+    "method": "textDocument/hover",
+    "file": "examples/retro-c/add.rc",
+    "line": 2,
+    "character": 12,
+    "key": "hover"
+  }
+]

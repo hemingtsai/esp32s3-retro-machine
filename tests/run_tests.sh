@@ -35,6 +35,11 @@ if ! sh tests/test_examples.sh "$BUILD_DIR/assembler" "$BUILD_DIR"; then
     status=1
 fi
 
+if ! sh tests/test_lsp.sh "$BUILD_DIR/assembler" "$BUILD_DIR"; then
+    printf 'FAIL(run)    retrolsp\n'
+    status=1
+fi
+
 for source in tests/test_*.c; do
     name=$(basename "$source" .c)
     extra_flags=""

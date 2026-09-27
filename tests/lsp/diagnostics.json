@@ -1,0 +1,11 @@
+[
+  {"method": "initialize"},
+  {"notification": "textDocument/didOpen", "text": "u16 main(void)\n{\n    return missing;\n}\n", "uri": "file:///lsp-broken.rc"},
+  {"method": "textDocument/documentSymbol", "uri": "file:///lsp-broken.rc", "key": "symbols"},
+  {"notification": "textDocument/didChange", "text": "u16 main(void)\n{\n    return 1 +;\n}\n", "uri": "file:///lsp-broken.rc", "version": 2},
+  {"method": "textDocument/documentSymbol", "uri": "file:///lsp-broken.rc", "key": "changed"},
+  {"notification": "textDocument/didOpen", "text": "u16 main(void)\n{\n    return 0;\n}\n", "uri": "file:///lsp-fixed.rc"},
+  {"method": "textDocument/documentSymbol", "uri": "file:///lsp-fixed.rc", "key": "fixed"},
+  {"notification": "textDocument/didClose", "uri": "file:///lsp-fixed.rc"},
+  {"method": "textDocument/documentSymbol", "uri": "file:///lsp-fixed.rc", "key": "closed"}
+]

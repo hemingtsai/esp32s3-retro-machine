@@ -1,0 +1,28 @@
+[
+  {
+    "method": "initialize"
+  },
+  {
+    "notification": "textDocument/didOpen",
+    "text": "u16 main(void)\n{\n    // \u8fd9\u662f\u4e2d\u6587\u6ce8\u91ca\uff0c\u542b ASCII \u6df7\u6392\n    return 1;\n}\n",
+    "uri": "file:///lsp-utf16.rc"
+  },
+  {
+    "method": "textDocument/semanticTokens/full",
+    "uri": "file:///lsp-utf16.rc",
+    "key": "tokens",
+    "decode": "semanticTokens"
+  },
+  {
+    "method": "textDocument/documentSymbol",
+    "uri": "file:///lsp-utf16.rc",
+    "key": "symbols"
+  },
+  {
+    "method": "textDocument/hover",
+    "uri": "file:///lsp-utf16.rc",
+    "line": 2,
+    "character": 10,
+    "key": "hover"
+  }
+]
