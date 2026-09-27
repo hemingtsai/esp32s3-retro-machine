@@ -65,6 +65,49 @@ usage: retrolsp [-h] [--stdio] [--compiler PATH] [--debounce MS]
 可复制的片段见 [`contrib/retrolsp-settings.json`](../contrib/retrolsp-settings.json)。
 仓库的 `.vscode/settings.json` 被忽略，因此客户端配置以 `contrib/` 中的片段为准。
 
+## VS Code 扩展
+
+仓库自带扩展 [`editors/vscode-retrolsp`](../editors/vscode-retrolsp)，扩展名为 `.rc` 的文件
+自动使用 Retro C。它不依赖任何 npm 包：`client.js` 用 Node 内置模块手写 JSON-RPC 客户端，
+`convert.js` 只做 LSP 与编辑器数据结构的映射，`extension.js` 负责与 VS Code API 对接。
+
+```text
+editors/vscode-retrolsp/
+├── package.json                      语言注册、语法、命令与设置
+├── language-configuration.json        注释、括号与缩进规则
+├── syntaxes/retro-c.tmLanguage.json  语义高亮不可用时的 TextMate 兜底语法
+├── client.js                         零依赖 JSON-RPC 客户端
+├── convert.js                        纯映射函数，可在 Node 下直接测试
+├── extension.js                      激活、构建、进程与文档同步
+└── test/                             无需启动 VS Code 的测试
+```
+
+### 使用
+
+在 VS Code 中打开仓库根目录作为工作区，打开任意 `.rc` 文件即可。扩展激活时：
+
+1. 若 `build/retrolsp` 或 `build/retrocc` 不存在，用 `cc -std=c11 -Wall -Wextra -Werror
+   -Wpedantic` 构建它们；
+2. 以 `--stdio --compiler build/retrocc` 启动语言服务器；
+3. 发送 `initialize` 并把已打开的 `.rc` 文档同步过去。
+
+| 命令 | 作用 |
+| --- | --- |
+| `Retro C: Restart Language Server` | 重新构建并重启服务器 |
+| `Retro C: Build Compiler and Language Server` | 只构建两个宿主工具 |
+| `Retro C: Show Output Channel` | 查看 JSON-RPC 与构建日志 |
+
+| 设置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `retro-c.serverPath` | `build/retrolsp` | 语言服务器可执行文件 |
+| `retro-c.compilerPath` | `build/retrocc` | 传给语言服务器的编译器 |
+| `retro-c.buildOnStartup` | `true` | 可执行文件缺失时自动构建 |
+| `retro-c.debounce` | `200` | 传给 `--debounce` 的毫秒数 |
+| `retro-c.trace` | `off` | 设为 `messages` 时记录 JSON-RPC 流量 |
+
+调试扩展本身时按 `F5`，或用 `Developer: Install Extension from Location...` 安装该目录。
+扩展从自身路径向上两级定位仓库根目录，因此只适用于本仓库内的开发，不适用于从市场安装。
+
 ## 支持的能力
 
 | 能力 | 说明 |
@@ -135,8 +178,8 @@ sh tests/test_lsp.sh ASSEMBLER BUILD_DIR
 | `debounce.json` | 只输入不发请求时，防抖到期后自动推送诊断 |
 | `robust.json` | 畸形头部块、非法 JSON 消息体、额外头部字段后仍能正常工作 |
 
-`sh tests/run_tests.sh` 会自动包含这一步。用 sanitizer 运行时沿用与其他宿主工具
-相同的 `LSP` 和 `RETROCC` 环境变量：
+VS Code 扩展的测试见下文。`sh tests/run_tests.sh` 会自动包含这两步。用 sanitizer 运行时沿用
+与其他宿主工具相同的 `LSP` 和 `RETROCC` 环境变量：
 
 ```sh
 build_dir=$(mktemp -d)
@@ -150,6 +193,21 @@ RETROCC="$build_dir/retrocc-sanitize" LSP="$build_dir/retrolsp-sanitize" \
    sh tests/test_lsp.sh "$build_dir/assembler" "$build_dir"
 rm -rf "$build_dir"
 ```
+
+## VS Code 扩展测试
+
+```sh
+sh tests/test_vscode.sh ASSEMBLER BUILD_DIR
+```
+
+该脚本在 `node` 可用时（缺失则跳过）做三件事：`node --check` 校验全部脚本语法、
+`python3 -m json.tool` 与一段断言校验 `package.json` 和语法清单，然后运行两个无需启动
+VS Code 的测试：
+
+| 测试 | 覆盖内容 |
+| --- | --- |
+| `editors/vscode-retrolsp/test/run.js` | `client.js` 的分帧、初始化、请求与通知分发；`convert.js` 的全部映射函数；对真实 `retrolsp` 完成大纲、高亮、悬浮、跳转、补全、签名和诊断的端到端校验 |
+| `editors/vscode-retrolsp/test/extension.js` | 用 mock 的 `vscode` 模块真正调用 `activate()`：路径解析、自动构建、服务器启动、文档同步、诊断投递、全部 provider 与 `deactivate()` 清理 |
 
 ## 维护
 

@@ -1,0 +1,96 @@
+{
+  "name": "retro-c",
+  "displayName": "Retro C",
+  "description": "Retro C language support: semantic highlighting, compiler diagnostics, outline, hover, go to definition, completion and signature help.",
+  "version": "0.1.0",
+  "publisher": "hemingtsai",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "retro c",
+    "retro-c",
+    "retro machine"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:retro-c"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "retro-c",
+        "aliases": [
+          "Retro C",
+          "retro-c"
+        ],
+        "extensions": [
+          ".rc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "retro-c",
+        "scopeName": "source.retro-c",
+        "path": "./syntaxes/retro-c.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "retro-c.restartServer",
+        "title": "Restart Language Server",
+        "category": "Retro C"
+      },
+      {
+        "command": "retro-c.buildTools",
+        "title": "Build Compiler and Language Server",
+        "category": "Retro C"
+      },
+      {
+        "command": "retro-c.showOutput",
+        "title": "Show Output Channel",
+        "category": "Retro C"
+      }
+    ],
+    "configuration": {
+      "title": "Retro C",
+      "properties": {
+        "retro-c.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the retrolsp executable. Empty resolves to build/retrolsp in the repository root."
+        },
+        "retro-c.compilerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the retrocc executable passed to the language server. Empty resolves to build/retrocc in the repository root."
+        },
+        "retro-c.buildOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Build retrocc and retrolsp with the host compiler when the executables are missing."
+        },
+        "retro-c.debounce": {
+          "type": "number",
+          "default": 200,
+          "minimum": 0,
+          "description": "Milliseconds the server waits after an edit before analysing the document."
+        },
+        "retro-c.trace": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "messages"
+          ],
+          "description": "Log JSON-RPC traffic between the editor and the language server."
+        }
+      }
+    }
+  }
+}

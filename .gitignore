@@ -67,6 +67,7 @@ env/
 .cache/
 .ccls-cache/
 compile_commands.json
+node_modules/
 
 # Local VS Code settings
 /.vscode/settings.json

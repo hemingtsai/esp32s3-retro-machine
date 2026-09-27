@@ -1,0 +1,85 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Retro C",
+  "scopeName": "source.retro-c",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#keyword" },
+    { "include": "#type" },
+    { "include": "#function-call" },
+    { "include": "#number" },
+    { "include": "#operator" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-slash.retro-c",
+      "match": "//.*$"
+    },
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.block.retro-c",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keyword": {
+      "name": "keyword.control.retro-c",
+      "match": "\\b(if|else|while|for|break|continue|return)\\b"
+    },
+    "type": {
+      "name": "storage.type.retro-c",
+      "match": "\\b(u16|void)\\b"
+    },
+    "function-call": {
+      "name": "entity.name.function.retro-c",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.retro-c",
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.retro-c",
+          "match": "\\b0[bB][01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.retro-c",
+          "match": "\\b0[oO][0-7_]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.retro-c",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "operator": {
+      "name": "keyword.operator.retro-c",
+      "match": "<<=|>>=|<<|>>|\\/=|\\+=|-=|&&|&=|\\|\\||\\|=|\\^=|==|!=|<=|>=|[-+/*%&|^~!<>=]"
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.definition.block.retro-c",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.definition.parameters.retro-c",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.definition.array.retro-c",
+          "match": "[][]"
+        },
+        {
+          "name": "punctuation.terminator.retro-c",
+          "match": "[;,]"
+        }
+      ]
+    }
+  }
+}
