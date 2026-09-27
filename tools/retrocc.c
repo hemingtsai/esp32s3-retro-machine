@@ -103,9 +103,46 @@ typedef struct {
 typedef struct {
     RcTokenKind kind;
     char *text;
+    size_t offset;
     size_t line;
     size_t column;
 } RcToken;
+
+typedef struct {
+    size_t offset;
+    size_t length;
+    size_t line;
+    size_t column;
+    bool block;
+} RcComment;
+
+typedef struct {
+    size_t offset;
+    size_t end_offset;
+    size_t line;
+    size_t column;
+    size_t end_line;
+    size_t end_column;
+    char *message;
+} RcDiagnostic;
+
+typedef struct {
+    char *name;
+    size_t offset;
+    size_t length;
+    size_t line;
+    size_t column;
+} RcReference;
+
+typedef struct {
+    size_t parent;
+    size_t start_offset;
+    size_t end_offset;
+    size_t start_line;
+    size_t start_column;
+    size_t end_line;
+    size_t end_column;
+} RcScope;
 
 typedef struct RcEntity RcEntity;
 
@@ -121,14 +158,26 @@ struct RcEntity {
     RcEntityKind kind;
     char *name;
     RcEntity *next;
+    RcEntity *owner;
+    RcEntity **parameters;
     RcType type;
     bool array;
+    bool parameter;
     size_t parameter_count;
     size_t element_count;
     size_t offset;
     size_t scope_depth;
+    size_t scope_index;
     uint16_t *initializers;
     size_t initializer_count;
+    size_t decl_line;
+    size_t decl_column;
+    size_t end_line;
+    size_t end_column;
+    size_t line;
+    size_t column;
+    size_t name_length;
+    size_t name_offset;
 };
 
 struct RcExpr {
@@ -153,10 +202,25 @@ typedef struct {
     RcToken *tokens;
     size_t token_count;
     size_t token_capacity;
+    RcComment *comments;
+    size_t comment_count;
+    size_t comment_capacity;
+    RcDiagnostic diagnostic;
+    RcReference *references;
+    size_t reference_count;
+    size_t reference_capacity;
+    RcScope *scopes;
+    size_t scope_count;
+    size_t scope_capacity;
+    size_t current_scope;
+    size_t body_lbrace_offset;
     size_t position;
     RcEntity *globals;
     RcEntity *functions;
     RcEntity *locals;
+    RcEntity **locals_all;
+    size_t locals_all_count;
+    size_t locals_all_capacity;
     RcEntity *current_function;
     const RcLoop *loop;
     size_t scope_depth;
@@ -165,6 +229,7 @@ typedef struct {
     size_t parse_depth;
     size_t next_label;
     bool uses_array_index;
+    bool analyze;
     bool failed;
 } RcCompiler;
 
@@ -407,7 +472,7 @@ static bool rc_keyword_kind(const char *text, RcTokenKind *kind)
 }
 
 static bool rc_token_append(RcCompiler *compiler, RcTokenKind kind, char *text,
-                            size_t line, size_t column)
+                            size_t offset, size_t line, size_t column)
 {
     RcToken *tokens;
     size_t capacity;
@@ -426,10 +491,160 @@ static bool rc_token_append(RcCompiler *compiler, RcTokenKind kind, char *text,
     }
     compiler->tokens[compiler->token_count].kind = kind;
     compiler->tokens[compiler->token_count].text = text;
+    compiler->tokens[compiler->token_count].offset = offset;
     compiler->tokens[compiler->token_count].line = line;
     compiler->tokens[compiler->token_count].column = column;
     ++compiler->token_count;
     return true;
+}
+
+static bool rc_comment_append(RcCompiler *compiler, size_t offset, size_t length,
+                              size_t line, size_t column, bool block)
+{
+    RcComment *comments;
+    size_t capacity;
+
+    if (compiler->comment_count == compiler->comment_capacity) {
+        capacity = compiler->comment_capacity == 0u ? 32u : compiler->comment_capacity * 2u;
+        if (capacity < compiler->comment_capacity || capacity > SIZE_MAX / sizeof(RcComment)) {
+            return false;
+        }
+        comments = realloc(compiler->comments, capacity * sizeof(RcComment));
+        if (comments == NULL) {
+            return false;
+        }
+        compiler->comments = comments;
+        compiler->comment_capacity = capacity;
+    }
+    compiler->comments[compiler->comment_count].offset = offset;
+    compiler->comments[compiler->comment_count].length = length;
+    compiler->comments[compiler->comment_count].line = line;
+    compiler->comments[compiler->comment_count].column = column;
+    compiler->comments[compiler->comment_count].block = block;
+    ++compiler->comment_count;
+    return true;
+}
+
+static bool rc_locals_all_append(RcCompiler *compiler, RcEntity *local)
+{
+    if (compiler->locals_all_count == compiler->locals_all_capacity) {
+        size_t next = compiler->locals_all_capacity == 0u ? 64u
+                                                          : compiler->locals_all_capacity * 2u;
+        RcEntity **grown;
+        if (next < compiler->locals_all_capacity || next > SIZE_MAX / sizeof(RcEntity *)) {
+            return false;
+        }
+        grown = realloc(compiler->locals_all, next * sizeof(RcEntity *));
+        if (grown == NULL) {
+            return false;
+        }
+        compiler->locals_all = grown;
+        compiler->locals_all_capacity = next;
+    }
+    compiler->locals_all[compiler->locals_all_count++] = local;
+    return true;
+}
+
+static void rc_diagnostic_record(RcCompiler *compiler, size_t offset, size_t end_offset,                                 size_t line, size_t column, size_t end_line,
+                                 size_t end_column, const char *message)
+{
+    if (compiler->diagnostic.message != NULL) {
+        return;
+    }
+    compiler->diagnostic.message = rc_arena_copy(&compiler->arena, message);
+    compiler->diagnostic.offset = offset;
+    compiler->diagnostic.end_offset = end_offset;
+    compiler->diagnostic.line = line;
+    compiler->diagnostic.column = column;
+    compiler->diagnostic.end_line = end_line;
+    compiler->diagnostic.end_column = end_column;
+}
+
+static void rc_reference_append(RcCompiler *compiler, RcToken *token, const char *name)
+{
+    RcReference *references;
+    size_t capacity;
+    RcReference *reference;
+
+    if (compiler->reference_count == compiler->reference_capacity) {
+        capacity = compiler->reference_capacity == 0u ? 128u : compiler->reference_capacity * 2u;
+        if (capacity < compiler->reference_capacity || capacity > SIZE_MAX / sizeof(RcReference)) {
+            return;
+        }
+        references = realloc(compiler->references, capacity * sizeof(RcReference));
+        if (references == NULL) {
+            return;
+        }
+        compiler->references = references;
+        compiler->reference_capacity = capacity;
+    }
+    reference = &compiler->references[compiler->reference_count++];
+    reference->name = rc_arena_copy(&compiler->arena, name);
+    reference->offset = token->offset;
+    reference->length = strlen(token->text);
+    reference->line = token->line;
+    reference->column = token->column;
+}
+
+static bool rc_scope_open(RcCompiler *compiler, RcToken *lbrace)
+{
+    RcScope *scopes;
+    size_t capacity;
+    RcScope *scope;
+
+    if (compiler->scope_count == compiler->scope_capacity) {
+        capacity = compiler->scope_capacity == 0u ? 32u : compiler->scope_capacity * 2u;
+        if (capacity < compiler->scope_capacity || capacity > SIZE_MAX / sizeof(RcScope)) {
+            return false;
+        }
+        scopes = realloc(compiler->scopes, capacity * sizeof(RcScope));
+        if (scopes == NULL) {
+            return false;
+        }
+        compiler->scopes = scopes;
+        compiler->scope_capacity = capacity;
+    }
+    scope = &compiler->scopes[compiler->scope_count];
+    scope->parent = compiler->current_scope;
+    scope->start_offset = lbrace->offset;
+    scope->end_offset = SIZE_MAX;
+    scope->start_line = lbrace->line;
+    scope->start_column = lbrace->column;
+    scope->end_line = lbrace->line;
+    scope->end_column = lbrace->column + 1u;
+    compiler->current_scope = compiler->scope_count++;
+    return true;
+}
+
+static void rc_scope_close(RcCompiler *compiler, RcToken *rbrace)
+{
+    RcScope *scope;
+
+    if (compiler->current_scope == SIZE_MAX) {
+        return;
+    }
+    scope = &compiler->scopes[compiler->current_scope];
+    scope->end_offset = rbrace->offset;
+    scope->end_line = rbrace->line;
+    scope->end_column = rbrace->column + 1u;
+    compiler->current_scope = scope->parent;
+}
+
+static size_t rc_current_scope(RcCompiler *compiler)
+{
+    return compiler->current_scope;
+}
+
+static void rc_entity_position(RcEntity *entity, RcToken *type_token, RcToken *name_token)
+{
+    entity->decl_line = type_token->line;
+    entity->decl_column = type_token->column;
+    entity->line = name_token->line;
+    entity->column = name_token->column;
+    entity->name_length = strlen(name_token->text);
+    entity->name_offset = name_token->offset;
+    entity->end_line = name_token->line;
+    entity->end_column = name_token->column + entity->name_length;
 }
 
 static RcTokenKind rc_punctuation_kind(const unsigned char *data, size_t length,
@@ -526,11 +741,15 @@ static RcTokenKind rc_punctuation_kind(const unsigned char *data, size_t length,
     }
 }
 
-static void rc_lexer_error(RcCompiler *compiler, size_t line, size_t column,
+static void rc_lexer_error(RcCompiler *compiler, size_t offset, size_t line, size_t column,
                            const char *message)
 {
     if (!compiler->failed) {
-        fprintf(stderr, "%s:%zu:%zu: error: %s\n", compiler->path, line, column, message);
+        rc_diagnostic_record(compiler, offset, offset + 1u, line, column, line, column + 1u,
+                             message);
+        if (!compiler->analyze) {
+            fprintf(stderr, "%s:%zu:%zu: error: %s\n", compiler->path, line, column, message);
+        }
     }
     compiler->failed = true;
 }
@@ -569,6 +788,9 @@ static bool rc_lex_source(RcCompiler *compiler, size_t *line, size_t *column)
             }
             if (value == '/' && compiler->position + 1u < compiler->source.length &&
                 compiler->source.data[compiler->position + 1u] == '/') {
+                size_t comment_line = *line;
+                size_t comment_column = *column;
+                size_t comment_offset = compiler->position;
                 compiler->position += 2u;
                 *column += 2u;
                 while (compiler->position < compiler->source.length &&
@@ -577,12 +799,20 @@ static bool rc_lex_source(RcCompiler *compiler, size_t *line, size_t *column)
                     ++compiler->position;
                     ++*column;
                 }
+                if (!rc_comment_append(compiler, comment_offset,
+                                      compiler->position - comment_offset,
+                                      comment_line, comment_column, false)) {
+                    rc_lexer_error(compiler, comment_offset, comment_line, comment_column,
+                                   "out of memory");
+                    return false;
+                }
                 continue;
             }
             if (value == '/' && compiler->position + 1u < compiler->source.length &&
                 compiler->source.data[compiler->position + 1u] == '*') {
                 size_t comment_line = *line;
                 size_t comment_column = *column;
+                size_t comment_offset = compiler->position;
                 bool closed = false;
                 compiler->position += 2u;
                 *column += 2u;
@@ -610,8 +840,15 @@ static bool rc_lex_source(RcCompiler *compiler, size_t *line, size_t *column)
                     }
                 }
                 if (!closed) {
-                    rc_lexer_error(compiler, comment_line, comment_column,
+                    rc_lexer_error(compiler, comment_offset, comment_line, comment_column,
                                    "unterminated block comment");
+                    return false;
+                }
+                if (!rc_comment_append(compiler, comment_offset,
+                                      compiler->position - comment_offset,
+                                      comment_line, comment_column, true)) {
+                    rc_lexer_error(compiler, comment_offset, comment_line, comment_column,
+                                   "out of memory");
                     return false;
                 }
                 continue;
@@ -657,15 +894,16 @@ static bool rc_lex_source(RcCompiler *compiler, size_t *line, size_t *column)
                                     (const char *)compiler->source.data + start,
                                     compiler->position - start);
         }
-        if (text == NULL || !rc_token_append(compiler, kind, text, token_line, token_column)) {
-            rc_lexer_error(compiler, token_line, token_column, "out of memory");
+        if (text == NULL || !rc_token_append(compiler, kind, text, start, token_line, token_column)) {
+            rc_lexer_error(compiler, start, token_line, token_column, "out of memory");
             return false;
         }
     }
 
 done:
     text = rc_arena_copy(&compiler->arena, "");
-    if (text == NULL || !rc_token_append(compiler, RC_TOKEN_EOF, text, *line, *column)) {
+    if (text == NULL || !rc_token_append(compiler, RC_TOKEN_EOF, text, compiler->source.length,
+                                         *line, *column)) {
         return false;
     }
     compiler->position = 0u;
@@ -702,16 +940,35 @@ static bool rc_accept(RcCompiler *compiler, RcTokenKind kind)
 static void rc_error(RcCompiler *compiler, RcToken *token, const char *format, ...)
 {
     va_list arguments;
+    char message[512];
+    size_t line;
+    size_t column;
+    size_t length;
+    int needed;
 
     if (compiler->failed) {
         return;
     }
-    fprintf(stderr, "%s:%zu:%zu: error: ", compiler->path,
-            token != NULL ? token->line : 1u, token != NULL ? token->column : 1u);
+    line = token != NULL ? token->line : 1u;
+    column = token != NULL ? token->column : 1u;
+    length = token != NULL ? strlen(token->text) : 1u;
+    if (length == 0u) {
+        length = 1u;
+    }
     va_start(arguments, format);
-    vfprintf(stderr, format, arguments);
+    needed = vsnprintf(message, sizeof(message), format, arguments);
     va_end(arguments);
-    fputc('\n', stderr);
+    if (needed < 0) {
+        message[0] = '\0';
+    } else if ((size_t)needed >= sizeof(message)) {
+        message[sizeof(message) - 1u] = '\0';
+    }
+    rc_diagnostic_record(compiler, token != NULL ? token->offset : 0u,
+                         token != NULL ? token->offset + length : 1u, line, column, line,
+                         column + length, message);
+    if (!compiler->analyze) {
+        fprintf(stderr, "%s:%zu:%zu: error: %s\n", compiler->path, line, column, message);
+    }
     compiler->failed = true;
 }
 
@@ -829,13 +1086,19 @@ static RcEntity *rc_find_local(RcCompiler *compiler, const char *name)
     return NULL;
 }
 
-static RcEntity *rc_lookup(RcCompiler *compiler, const char *name)
+static RcEntity *rc_lookup(RcCompiler *compiler, RcToken *token)
 {
-    RcEntity *entity = rc_find_local(compiler, name);
-    if (entity != NULL) return entity;
-    entity = rc_find_entity(compiler->globals, name);
-    if (entity != NULL) return entity;
-    return rc_find_entity(compiler->functions, name);
+    RcEntity *entity = rc_find_local(compiler, token->text);
+    if (entity == NULL) {
+        entity = rc_find_entity(compiler->globals, token->text);
+    }
+    if (entity == NULL) {
+        entity = rc_find_entity(compiler->functions, token->text);
+    }
+    if (entity != NULL) {
+        rc_reference_append(compiler, token, entity->name);
+    }
+    return entity;
 }
 
 static bool rc_reserved_name(const char *name)
@@ -1155,6 +1418,8 @@ static bool rc_collect_entities(RcCompiler *compiler)
             rc_error(compiler, name_token, "out of memory");
             return false;
         }
+        entity->scope_index = SIZE_MAX;
+        rc_entity_position(entity, type_token, name_token);
         entity->type = type_token->kind == RC_TOKEN_U16 ? RC_TYPE_U16 : RC_TYPE_VOID;
         if (rc_peek(compiler, 0u)->kind == RC_TOKEN_LPAREN) {
             size_t count;
@@ -1195,8 +1460,13 @@ static bool rc_collect_entities(RcCompiler *compiler)
         if (!rc_collect_global_initializer(compiler, entity)) {
             return false;
         }
-        if (!rc_expect(compiler, RC_TOKEN_SEMICOLON, "';'")) {
-            return false;
+        {
+            RcToken *end_token = rc_peek(compiler, 0u);
+            if (!rc_expect(compiler, RC_TOKEN_SEMICOLON, "';'")) {
+                return false;
+            }
+            entity->end_line = end_token->line;
+            entity->end_column = end_token->column + 1u;
         }
         if (rc_find_label_entity(compiler->globals, entity->name) != NULL ||
             rc_find_label_entity(compiler->functions, entity->name) != NULL) {
@@ -1222,7 +1492,8 @@ static bool rc_collect_entities(RcCompiler *compiler)
     return true;
 }
 
-static bool rc_add_local(RcCompiler *compiler, RcEntity *local, RcToken *token)
+static bool rc_add_local(RcCompiler *compiler, RcEntity *local, RcToken *type_token,
+                         RcToken *name_token)
 {
     RcEntity *current;
     size_t words = local->array ? local->element_count : 1u;
@@ -1230,21 +1501,28 @@ static bool rc_add_local(RcCompiler *compiler, RcEntity *local, RcToken *token)
     for (current = compiler->locals; current != NULL; current = current->next) {
         if (current->scope_depth <= compiler->scope_depth &&
             strcmp(current->name, local->name) == 0) {
-            rc_error(compiler, token, "duplicate local '%s'", local->name);
+            rc_error(compiler, name_token, "duplicate local '%s'", local->name);
             return false;
         }
     }
     if (words == 0u || words > RETROCC_MAX_FRAME_WORDS - compiler->frame_words) {
-        rc_error(compiler, token, "function stack frame exceeds %u words",
+        rc_error(compiler, name_token, "function stack frame exceeds %u words",
                  RETROCC_MAX_FRAME_WORDS);
         return false;
     }
+    rc_entity_position(local, type_token, name_token);
     local->kind = RC_ENTITY_LOCAL;
+    local->owner = compiler->current_function;
     local->offset = compiler->frame_words;
     compiler->frame_words += words;
     local->scope_depth = compiler->scope_depth;
+    local->scope_index = rc_current_scope(compiler);
     local->next = compiler->locals;
     compiler->locals = local;
+    if (!rc_locals_all_append(compiler, local)) {
+        rc_error(compiler, name_token, "out of memory");
+        return false;
+    }
     return true;
 }
 
@@ -1337,7 +1615,7 @@ static bool rc_parse_primary(RcCompiler *compiler, RcExpr **result)
             rc_peek(compiler, 1u)->kind == RC_TOKEN_RPAREN &&
             rc_peek(compiler, 2u)->kind == RC_TOKEN_LBRACKET) {
             RcToken *name_token = rc_take(compiler);
-            RcEntity *entity = rc_lookup(compiler, name_token->text);
+            RcEntity *entity = rc_lookup(compiler, name_token);
             RcExpr *expression;
 
             if (entity == NULL) {
@@ -1370,7 +1648,7 @@ static bool rc_parse_primary(RcCompiler *compiler, RcExpr **result)
         return rc_expect(compiler, RC_TOKEN_RPAREN, "')'");
     }
     if (rc_accept(compiler, RC_TOKEN_IDENTIFIER)) {
-        RcEntity *entity = rc_lookup(compiler, token->text);
+        RcEntity *entity = rc_lookup(compiler, token);
         RcExpr *expression;
 
         if (entity == NULL) {
@@ -2063,10 +2341,12 @@ static bool rc_parse_local_array_initializer(RcCompiler *compiler, RcEntity *loc
 
 static bool rc_parse_local_declaration(RcCompiler *compiler)
 {
+    RcToken *type_token;
     RcToken *name_token;
     RcEntity *local;
     RcExpr *expression;
 
+    type_token = rc_peek(compiler, 0u);
     if (!rc_expect(compiler, RC_TOKEN_U16, "'u16'")) {
         return false;
     }
@@ -2102,7 +2382,7 @@ static bool rc_parse_local_declaration(RcCompiler *compiler)
     } else {
         local->element_count = 1u;
     }
-    if (!rc_add_local(compiler, local, name_token)) {
+    if (!rc_add_local(compiler, local, type_token, name_token)) {
         return false;
     }
     if (rc_accept(compiler, RC_TOKEN_ASSIGN)) {
@@ -2123,7 +2403,15 @@ static bool rc_parse_local_declaration(RcCompiler *compiler)
             rc_emit_local_store(compiler, local, 0u, "R0");
         }
     }
-    return rc_expect(compiler, RC_TOKEN_SEMICOLON, "';'");
+    {
+        RcToken *end_token = rc_peek(compiler, 0u);
+        if (!rc_expect(compiler, RC_TOKEN_SEMICOLON, "';'")) {
+            return false;
+        }
+        local->end_line = end_token->line;
+        local->end_column = end_token->column + 1u;
+    }
+    return true;
 }
 
 static bool rc_gen_condition(RcCompiler *compiler, size_t false_label)
@@ -2208,13 +2496,20 @@ static bool rc_parse_for(RcCompiler *compiler)
     const RcLoop *previous = compiler->loop;
     RcEntity *outer_locals = compiler->locals;
     RcExpr *step_expression = NULL;
+    RcToken *for_token = rc_peek(compiler, 0u);
     bool loop_installed = false;
+    bool scope_open = false;
     bool success = false;
 
     if (!rc_expect(compiler, RC_TOKEN_FOR, "'for'") ||
         !rc_expect(compiler, RC_TOKEN_LPAREN, "'('")) {
         return false;
     }
+    if (!rc_scope_open(compiler, for_token)) {
+        rc_error(compiler, for_token, "out of memory");
+        return false;
+    }
+    scope_open = true;
     ++compiler->scope_depth;
     if (rc_accept(compiler, RC_TOKEN_SEMICOLON)) {
     } else if (rc_peek(compiler, 0u)->kind == RC_TOKEN_U16) {
@@ -2280,6 +2575,9 @@ cleanup:
     if (loop_installed) {
         compiler->loop = previous;
     }
+    if (scope_open) {
+        rc_scope_close(compiler, rc_peek(compiler, 0u));
+    }
     --compiler->scope_depth;
     compiler->locals = outer_locals;
     return success;
@@ -2330,7 +2628,13 @@ static bool rc_parse_statement(RcCompiler *compiler)
 
     if (token->kind == RC_TOKEN_LBRACE) {
         RcEntity *outer_locals = compiler->locals;
+        bool own_scope = token->offset != compiler->body_lbrace_offset;
         rc_take(compiler);
+        if (own_scope && !rc_scope_open(compiler, token)) {
+            rc_error(compiler, token, "out of memory");
+            compiler->locals = outer_locals;
+            return false;
+        }
         ++compiler->scope_depth;
         while (rc_peek(compiler, 0u)->kind != RC_TOKEN_RBRACE) {
             if (rc_peek(compiler, 0u)->kind == RC_TOKEN_EOF) {
@@ -2345,7 +2649,14 @@ static bool rc_parse_statement(RcCompiler *compiler)
                 goto block_error;
             }
         }
-        rc_take(compiler);
+        {
+            RcToken *rbrace = rc_take(compiler);
+            rc_scope_close(compiler, rbrace);
+            if (!own_scope && compiler->current_function != NULL) {
+                compiler->current_function->end_line = rbrace->line;
+                compiler->current_function->end_column = rbrace->column + 1u;
+            }
+        }
         --compiler->scope_depth;
         compiler->locals = outer_locals;
         return true;
@@ -2405,9 +2716,11 @@ static bool rc_parse_body_parameters(RcCompiler *compiler, RcEntity **parameters
         return true;
     }
     for (;;) {
+        RcToken *type_token;
         RcToken *name_token;
         RcEntity *local;
 
+        type_token = rc_peek(compiler, 0u);
         if (!rc_expect(compiler, RC_TOKEN_U16, "parameter type 'u16'")) {
             return false;
         }
@@ -2435,12 +2748,13 @@ static bool rc_parse_body_parameters(RcCompiler *compiler, RcEntity **parameters
         }
         memset(local, 0, sizeof(*local));
         local->element_count = 1u;
+        local->parameter = true;
         local->name = rc_arena_copy(&compiler->arena, name_token->text);
         if (local->name == NULL) {
             rc_error(compiler, name_token, "out of memory");
             return false;
         }
-        if (!rc_add_local(compiler, local, name_token)) {
+        if (!rc_add_local(compiler, local, type_token, name_token)) {
             return false;
         }
         parameters[(*count)++] = local;
@@ -2470,6 +2784,8 @@ static bool rc_parse_function(RcCompiler *compiler, RcEntity *function)
     compiler->frame_words = 0u;
     compiler->temporary_depth = 0u;
     compiler->loop = NULL;
+    compiler->current_scope = SIZE_MAX;
+    compiler->body_lbrace_offset = SIZE_MAX;
     if (!rc_parse_body_parameters(compiler, parameters, &parameter_count)) {
         goto cleanup;
     }
@@ -2477,6 +2793,28 @@ static bool rc_parse_function(RcCompiler *compiler, RcEntity *function)
         rc_error(compiler, rc_peek(compiler, 0u), "function '%s' has inconsistent signature",
                  function->name);
         goto cleanup;
+    }
+    {
+        RcToken *lbrace = rc_peek(compiler, 0u);
+        size_t index;
+        compiler->body_lbrace_offset = lbrace->offset;
+        if (!rc_scope_open(compiler, lbrace)) {
+            rc_error(compiler, lbrace, "out of memory");
+            goto cleanup;
+        }
+        for (index = 0u; index < parameter_count; ++index) {
+            parameters[index]->scope_index = rc_current_scope(compiler);
+        }
+        if (parameter_count != 0u) {
+            RcEntity **stored = rc_arena_allocate(&compiler->arena,
+                                                 parameter_count * sizeof(RcEntity *));
+            if (stored == NULL) {
+                rc_error(compiler, lbrace, "out of memory");
+                goto cleanup;
+            }
+            memcpy(stored, parameters, parameter_count * sizeof(RcEntity *));
+            function->parameters = stored;
+        }
     }
     if (!rc_parse_statement(compiler)) {
         goto cleanup;
@@ -2521,6 +2859,8 @@ cleanup:
     compiler->frame_words = 0u;
     compiler->temporary_depth = 0u;
     compiler->loop = NULL;
+    compiler->current_scope = SIZE_MAX;
+    compiler->body_lbrace_offset = SIZE_MAX;
     return success;
 }
 
@@ -2665,7 +3005,8 @@ static bool rc_validate_output(RcCompiler *compiler)
 
 static bool rc_write_output(const char *path, const RcBuffer *output)
 {
-    FILE *file = fopen(path, "wb");
+    bool standard = strcmp(path, "-") == 0;
+    FILE *file = standard ? stdout : fopen(path, "wb");
     bool success;
 
     if (file == NULL) {
@@ -2673,7 +3014,11 @@ static bool rc_write_output(const char *path, const RcBuffer *output)
     }
     success = output->length == 0u ||
               fwrite(output->data, 1u, output->length, file) == output->length;
-    if (fclose(file) != 0) {
+    if (standard) {
+        if (fflush(file) != 0) {
+            success = false;
+        }
+    } else if (fclose(file) != 0) {
         success = false;
     }
     return success;
@@ -2683,6 +3028,14 @@ static void rc_compiler_clear(RcCompiler *compiler)
 {
     free(compiler->tokens);
     compiler->tokens = NULL;
+    free(compiler->comments);
+    compiler->comments = NULL;
+    free(compiler->references);
+    compiler->references = NULL;
+    free(compiler->scopes);
+    compiler->scopes = NULL;
+    free(compiler->locals_all);
+    compiler->locals_all = NULL;
     compiler->token_count = 0u;
     compiler->token_capacity = 0u;
     rc_buffer_clear(&compiler->source);
@@ -2690,7 +3043,406 @@ static void rc_compiler_clear(RcCompiler *compiler)
     rc_arena_clear(&compiler->arena);
 }
 
-static bool rc_compile_file(const char *input_path, const char *output_path)
+static const char *rc_token_kind_name(RcTokenKind kind)
+{
+    switch (kind) {
+    case RC_TOKEN_IDENTIFIER: return "identifier";
+    case RC_TOKEN_NUMBER: return "number";
+    case RC_TOKEN_U16:
+    case RC_TOKEN_VOID: return "type";
+    case RC_TOKEN_IF:
+    case RC_TOKEN_ELSE:
+    case RC_TOKEN_WHILE:
+    case RC_TOKEN_FOR:
+    case RC_TOKEN_BREAK:
+    case RC_TOKEN_CONTINUE:
+    case RC_TOKEN_RETURN: return "keyword";
+    case RC_TOKEN_LBRACE:
+    case RC_TOKEN_RBRACE:
+    case RC_TOKEN_LPAREN:
+    case RC_TOKEN_RPAREN:
+    case RC_TOKEN_LBRACKET:
+    case RC_TOKEN_RBRACKET:
+    case RC_TOKEN_SEMICOLON:
+    case RC_TOKEN_COMMA: return "punctuation";
+    case RC_TOKEN_UNKNOWN: return "unknown";
+    case RC_TOKEN_EOF: return "eof";
+    default: return "operator";
+    }
+}
+
+static bool rc_json_string(RcBuffer *out, const char *text)
+{
+    const unsigned char *cursor = (const unsigned char *)text;
+
+    if (!rc_buffer_append(out, "\"", 1u)) {
+        return false;
+    }
+    for (; *cursor != '\0'; ++cursor) {
+        char escape[8];
+        const char *piece = escape;
+        size_t length;
+
+        switch (*cursor) {
+        case '"': piece = "\\\""; length = 2u; break;
+        case '\\': piece = "\\\\"; length = 2u; break;
+        case '\b': piece = "\\b"; length = 2u; break;
+        case '\f': piece = "\\f"; length = 2u; break;
+        case '\n': piece = "\\n"; length = 2u; break;
+        case '\r': piece = "\\r"; length = 2u; break;
+        case '\t': piece = "\\t"; length = 2u; break;
+        default:
+            if (*cursor < 0x20u) {
+                (void)snprintf(escape, sizeof(escape), "\\u%04X", (unsigned int)*cursor);
+                length = 6u;
+            } else {
+                escape[0] = (char)*cursor;
+                length = 1u;
+            }
+            break;
+        }
+        if (!rc_buffer_append(out, piece, length)) {
+            return false;
+        }
+    }
+    return rc_buffer_append(out, "\"", 1u);
+}
+
+typedef struct {
+    RcBuffer *out;
+    bool first;
+    bool keyed;
+} RcJsonWriter;
+
+static bool rc_json_text(RcBuffer *out, const char *text, size_t length)
+{
+    return rc_buffer_append(out, text, length);
+}
+
+static bool rc_json_before(RcJsonWriter *writer)
+{
+    if (writer->keyed) {
+        writer->keyed = false;
+        return true;
+    }
+    if (!writer->first && !rc_json_text(writer->out, ",", 1u)) {
+        return false;
+    }
+    writer->first = false;
+    return true;
+}
+
+static bool rc_json_key(RcJsonWriter *writer, const char *name)
+{
+    if (!rc_json_before(writer)) {
+        return false;
+    }
+    if (!rc_json_string(writer->out, name) || !rc_json_text(writer->out, ":", 1u)) {
+        return false;
+    }
+    writer->keyed = true;
+    return true;
+}
+
+static bool rc_json_value_raw(RcJsonWriter *writer, const char *text)
+{
+    return rc_json_before(writer) && rc_json_text(writer->out, text, strlen(text));
+}
+
+static bool rc_json_value_string(RcJsonWriter *writer, const char *text)
+{
+    return rc_json_before(writer) && rc_json_string(writer->out, text);
+}
+
+static bool rc_json_value_size(RcJsonWriter *writer, size_t value)
+{
+    char text[32];
+
+    (void)snprintf(text, sizeof(text), "%zu", value);
+    return rc_json_value_raw(writer, text);
+}
+
+static bool rc_json_value_bool(RcJsonWriter *writer, bool value)
+{
+    return rc_json_value_raw(writer, value ? "true" : "false");
+}
+
+static bool rc_json_open(RcJsonWriter *writer, char bracket)
+{
+    if (!rc_json_before(writer) || !rc_json_text(writer->out, &bracket, 1u)) {
+        return false;
+    }
+    writer->first = true;
+    writer->keyed = false;
+    return true;
+}
+
+static bool rc_json_close(RcJsonWriter *writer, char bracket)
+{
+    if (!rc_json_text(writer->out, &bracket, 1u)) {
+        return false;
+    }
+    writer->first = false;
+    writer->keyed = false;
+    return true;
+}
+
+static int rc_entity_offset_compare(const void *left, const void *right)
+{
+    const RcEntity *first = *(const RcEntity *const *)left;
+    const RcEntity *second = *(const RcEntity *const *)right;
+
+    if (first->name_offset < second->name_offset) return -1;
+    if (first->name_offset > second->name_offset) return 1;
+    return 0;
+}
+
+static bool rc_analysis_push(RcEntity ***entities, size_t *capacity, size_t *used,
+                             RcEntity *entity)
+{
+    if (*used == *capacity) {
+        size_t next = *capacity == 0u ? 64u : *capacity * 2u;
+        RcEntity **grown;
+        if (next > SIZE_MAX / sizeof(RcEntity *)) {
+            return false;
+        }
+        grown = realloc(*entities, next * sizeof(RcEntity *));
+        if (grown == NULL) {
+            return false;
+        }
+        *entities = grown;
+        *capacity = next;
+    }
+    (*entities)[(*used)++] = entity;
+    return true;
+}
+
+static bool rc_analysis_entities(RcCompiler *compiler, RcEntity ***result, size_t *count)
+{
+    RcEntity **entities = NULL;
+    size_t capacity = 0u;
+    size_t used = 0u;
+    size_t index;
+    RcEntity *entity;
+    bool ok = true;
+
+    for (entity = compiler->functions; entity != NULL && ok; entity = entity->next) {
+        ok = rc_analysis_push(&entities, &capacity, &used, entity);
+    }
+    for (entity = compiler->globals; entity != NULL && ok; entity = entity->next) {
+        ok = rc_analysis_push(&entities, &capacity, &used, entity);
+    }
+    for (index = 0u; index < compiler->locals_all_count && ok; ++index) {
+        ok = rc_analysis_push(&entities, &capacity, &used, compiler->locals_all[index]);
+    }
+    if (!ok) {
+        free(entities);
+        return false;
+    }
+    if (used != 0u) {
+        qsort(entities, used, sizeof(RcEntity *), rc_entity_offset_compare);
+    }
+    *result = entities;
+    *count = used;
+    return true;
+}
+
+static bool rc_analysis_symbol(RcJsonWriter *writer, const RcEntity *entity)
+{
+    const char *kind = "local";
+    size_t index;
+
+    if (entity->kind == RC_ENTITY_FUNCTION) {
+        kind = "function";
+    } else if (entity->kind == RC_ENTITY_GLOBAL) {
+        kind = "global";
+    } else if (entity->parameter) {
+        kind = "parameter";
+    }
+    if (!rc_json_open(writer, '{') || !rc_json_key(writer, "name") ||
+        !rc_json_value_string(writer, entity->name) ||
+        !rc_json_key(writer, "kind") || !rc_json_value_string(writer, kind) ||
+        !rc_json_key(writer, "type") ||
+        !rc_json_value_string(writer, entity->type == RC_TYPE_VOID ? "void" : "u16") ||
+        !rc_json_key(writer, "array") || !rc_json_value_bool(writer, entity->array) ||
+        !rc_json_key(writer, "elements") || !rc_json_value_size(writer, entity->element_count) ||
+        !rc_json_key(writer, "offset") || !rc_json_value_size(writer, entity->name_offset) ||
+        !rc_json_key(writer, "length") || !rc_json_value_size(writer, entity->name_length) ||
+        !rc_json_key(writer, "line") || !rc_json_value_size(writer, entity->line) ||
+        !rc_json_key(writer, "column") || !rc_json_value_size(writer, entity->column) ||
+        !rc_json_key(writer, "declLine") || !rc_json_value_size(writer, entity->decl_line) ||
+        !rc_json_key(writer, "declColumn") || !rc_json_value_size(writer, entity->decl_column) ||
+        !rc_json_key(writer, "endLine") || !rc_json_value_size(writer, entity->end_line) ||
+        !rc_json_key(writer, "endColumn") || !rc_json_value_size(writer, entity->end_column) ||
+        !rc_json_key(writer, "owner") ||
+        !rc_json_value_string(writer, entity->owner != NULL ? entity->owner->name : "") ||
+        !rc_json_key(writer, "scope")) {
+        return false;
+    }
+    if (entity->scope_index == SIZE_MAX) {
+        if (!rc_json_value_raw(writer, "null")) {
+            return false;
+        }
+    } else if (!rc_json_value_size(writer, entity->scope_index)) {
+        return false;
+    }
+    if (!rc_json_key(writer, "parameters") || !rc_json_open(writer, '[')) {
+        return false;
+    }
+    if (entity->kind == RC_ENTITY_FUNCTION) {
+        for (index = 0u; index < entity->parameter_count; ++index) {
+            const RcEntity *parameter = entity->parameters[index];
+            if (!rc_json_open(writer, '{') || !rc_json_key(writer, "name") ||
+                !rc_json_value_string(writer, parameter->name) ||
+                !rc_json_key(writer, "offset") ||
+                !rc_json_value_size(writer, parameter->name_offset) ||
+                !rc_json_key(writer, "length") ||
+                !rc_json_value_size(writer, parameter->name_length) ||
+                !rc_json_key(writer, "line") || !rc_json_value_size(writer, parameter->line) ||
+                !rc_json_key(writer, "column") || !rc_json_value_size(writer, parameter->column) ||
+                !rc_json_close(writer, '}')) {
+                return false;
+            }
+        }
+    }
+    return rc_json_close(writer, ']') && rc_json_close(writer, '}');
+}
+
+static bool rc_analysis_write(RcCompiler *compiler, RcBuffer *out)
+{
+    RcJsonWriter writer;
+    RcEntity **entities = NULL;
+    size_t entity_count = 0u;
+    size_t index;
+    bool ok = false;
+
+    writer.out = out;
+    writer.first = true;
+    writer.keyed = false;
+    if (!rc_json_open(&writer, '{') || !rc_json_key(&writer, "version") ||
+        !rc_json_value_size(&writer, 1u) || !rc_json_key(&writer, "path") ||
+        !rc_json_value_string(&writer, compiler->path != NULL ? compiler->path : "")) {
+        return false;
+    }
+    if (!rc_json_key(&writer, "diagnostics") || !rc_json_open(&writer, '[')) {
+        return false;
+    }
+    if (compiler->diagnostic.message != NULL) {
+        if (!rc_json_open(&writer, '{') || !rc_json_key(&writer, "severity") ||
+            !rc_json_value_size(&writer, 1u) || !rc_json_key(&writer, "message") ||
+            !rc_json_value_string(&writer, compiler->diagnostic.message) ||
+            !rc_json_key(&writer, "offset") ||
+            !rc_json_value_size(&writer, compiler->diagnostic.offset) ||
+            !rc_json_key(&writer, "endOffset") ||
+            !rc_json_value_size(&writer, compiler->diagnostic.end_offset) ||
+            !rc_json_key(&writer, "line") || !rc_json_value_size(&writer, compiler->diagnostic.line) ||
+            !rc_json_key(&writer, "column") ||
+            !rc_json_value_size(&writer, compiler->diagnostic.column) ||
+            !rc_json_key(&writer, "endLine") ||
+            !rc_json_value_size(&writer, compiler->diagnostic.end_line) ||
+            !rc_json_key(&writer, "endColumn") ||
+            !rc_json_value_size(&writer, compiler->diagnostic.end_column) ||
+            !rc_json_close(&writer, '}')) {
+            return false;
+        }
+    }
+    if (!rc_json_close(&writer, ']') || !rc_json_key(&writer, "comments") ||
+        !rc_json_open(&writer, '[')) {
+        return false;
+    }
+    for (index = 0u; index < compiler->comment_count; ++index) {
+        const RcComment *comment = &compiler->comments[index];
+        if (!rc_json_open(&writer, '{') || !rc_json_key(&writer, "kind") ||
+            !rc_json_value_string(&writer, comment->block ? "block" : "line") ||
+            !rc_json_key(&writer, "offset") || !rc_json_value_size(&writer, comment->offset) ||
+            !rc_json_key(&writer, "length") || !rc_json_value_size(&writer, comment->length) ||
+            !rc_json_key(&writer, "line") || !rc_json_value_size(&writer, comment->line) ||
+            !rc_json_key(&writer, "column") || !rc_json_value_size(&writer, comment->column) ||
+            !rc_json_close(&writer, '}')) {
+            return false;
+        }
+    }
+    if (!rc_json_close(&writer, ']') || !rc_json_key(&writer, "tokens") ||
+        !rc_json_open(&writer, '[')) {
+        return false;
+    }
+    for (index = 0u; index < compiler->token_count; ++index) {
+        const RcToken *token = &compiler->tokens[index];
+        if (token->kind == RC_TOKEN_EOF) {
+            continue;
+        }
+        if (!rc_json_open(&writer, '{') || !rc_json_key(&writer, "kind") ||
+            !rc_json_value_string(&writer, rc_token_kind_name(token->kind)) ||
+            !rc_json_key(&writer, "text") || !rc_json_value_string(&writer, token->text) ||
+            !rc_json_key(&writer, "offset") || !rc_json_value_size(&writer, token->offset) ||
+            !rc_json_key(&writer, "length") || !rc_json_value_size(&writer, strlen(token->text)) ||
+            !rc_json_key(&writer, "line") || !rc_json_value_size(&writer, token->line) ||
+            !rc_json_key(&writer, "column") || !rc_json_value_size(&writer, token->column) ||
+            !rc_json_close(&writer, '}')) {
+            return false;
+        }
+    }
+    if (!rc_json_close(&writer, ']') || !rc_json_key(&writer, "symbols") ||
+        !rc_json_open(&writer, '[')) {
+        return false;
+    }
+    if (!rc_analysis_entities(compiler, &entities, &entity_count)) {
+        return false;
+    }
+    for (index = 0u; index < entity_count; ++index) {
+        if (!rc_analysis_symbol(&writer, entities[index])) {
+            free(entities);
+            return false;
+        }
+    }
+    free(entities);
+    if (!rc_json_close(&writer, ']') || !rc_json_key(&writer, "references") ||
+        !rc_json_open(&writer, '[')) {
+        return false;
+    }
+    for (index = 0u; index < compiler->reference_count; ++index) {
+        const RcReference *reference = &compiler->references[index];
+        if (reference->name == NULL) {
+            continue;
+        }
+        if (!rc_json_open(&writer, '{') || !rc_json_key(&writer, "name") ||
+            !rc_json_value_string(&writer, reference->name) ||
+            !rc_json_key(&writer, "offset") || !rc_json_value_size(&writer, reference->offset) ||
+            !rc_json_key(&writer, "length") || !rc_json_value_size(&writer, reference->length) ||
+            !rc_json_key(&writer, "line") || !rc_json_value_size(&writer, reference->line) ||
+            !rc_json_key(&writer, "column") || !rc_json_value_size(&writer, reference->column) ||
+            !rc_json_close(&writer, '}')) {
+            return false;
+        }
+    }
+    if (!rc_json_close(&writer, ']') || !rc_json_key(&writer, "scopes") ||
+        !rc_json_open(&writer, '[')) {
+        return false;
+    }
+    for (index = 0u; index < compiler->scope_count; ++index) {
+        const RcScope *scope = &compiler->scopes[index];
+        size_t end_offset = scope->end_offset == SIZE_MAX ? scope->start_offset
+                                                          : scope->end_offset;
+        if (!rc_json_open(&writer, '{') || !rc_json_key(&writer, "startOffset") ||
+            !rc_json_value_size(&writer, scope->start_offset) ||
+            !rc_json_key(&writer, "endOffset") || !rc_json_value_size(&writer, end_offset) ||
+            !rc_json_key(&writer, "startLine") || !rc_json_value_size(&writer, scope->start_line) ||
+            !rc_json_key(&writer, "startColumn") ||
+            !rc_json_value_size(&writer, scope->start_column) ||
+            !rc_json_key(&writer, "endLine") || !rc_json_value_size(&writer, scope->end_line) ||
+            !rc_json_key(&writer, "endColumn") || !rc_json_value_size(&writer, scope->end_column) ||
+            !rc_json_close(&writer, '}')) {
+            return false;
+        }
+    }
+    if (!rc_json_close(&writer, ']') || !rc_json_close(&writer, '}')) {
+        return false;
+    }
+    ok = rc_json_text(out, "\n", 1u);
+    return ok;
+}
+
+static bool rc_compile_file(const char *input_path, const char *output_path, bool analyze)
 {
     RcCompiler compiler;
     size_t line = 1u;
@@ -2700,41 +3452,60 @@ static bool rc_compile_file(const char *input_path, const char *output_path)
 
     memset(&compiler, 0, sizeof(compiler));
     compiler.path = input_path;
+    compiler.current_scope = SIZE_MAX;
+    compiler.body_lbrace_offset = SIZE_MAX;
+    compiler.analyze = analyze;
     if (!rc_read_source(input_path, &compiler.source, &message)) {
         fprintf(stderr, "%s: error: unable to read source: %s\n", input_path, message);
         goto cleanup;
     }
-    if (!rc_lex_source(&compiler, &line, &column) || compiler.failed) {
-        goto cleanup;
-    }
-    if (!rc_collect_entities(&compiler) || !rc_generate(&compiler) ||
+    if (!rc_lex_source(&compiler, &line, &column) || compiler.failed ||
+        !rc_collect_entities(&compiler) || !rc_generate(&compiler) ||
         !rc_validate_output(&compiler)) {
         goto cleanup;
     }
-    if (!rc_write_output(output_path, &compiler.output)) {
-        fprintf(stderr, "%s: error: unable to write output: %s\n",
-                output_path, strerror(errno));
-        goto cleanup;
+    if (!analyze) {
+        if (!rc_write_output(output_path, &compiler.output)) {
+            fprintf(stderr, "%s: error: unable to write output: %s\n",
+                    output_path, strerror(errno));
+            goto cleanup;
+        }
+        if (strcmp(output_path, "-") == 0) {
+            fprintf(stderr, "Compiled %s -> %s\n", input_path, output_path);
+        } else {
+            printf("Compiled %s -> %s\n", input_path, output_path);
+        }
     }
-    printf("Compiled %s -> %s\n", input_path, output_path);
     success = true;
 cleanup:
+    if (analyze) {
+        RcBuffer analysis = {0};
+        bool written = rc_analysis_write(&compiler, &analysis) &&
+                       rc_write_output(output_path, &analysis);
+        rc_buffer_clear(&analysis);
+        if (!written) {
+            fprintf(stderr, "%s: error: unable to write output: %s\n", output_path, strerror(errno));
+            success = false;
+        }
+    }
     rc_compiler_clear(&compiler);
     return success;
 }
 
 static void rc_usage(FILE *stream, const char *program)
 {
-    fprintf(stream, "usage: %s [-h] -o OUTPUT INPUT\n", program);
+    fprintf(stream, "usage: %s [-h] [--analyze] -o OUTPUT INPUT\n", program);
 }
 
-static int rc_arguments(int argc, char **argv, const char **input, const char **output)
+static int rc_arguments(int argc, char **argv, const char **input, const char **output,
+                        bool *analyze)
 {
     int index;
     bool end_options = false;
 
     *input = NULL;
     *output = NULL;
+    *analyze = false;
     for (index = 1; index < argc; ++index) {
         const char *argument = argv[index];
         if (!end_options && strcmp(argument, "--") == 0) {
@@ -2744,6 +3515,10 @@ static int rc_arguments(int argc, char **argv, const char **input, const char **
         if (!end_options && (strcmp(argument, "-h") == 0 ||
                              strcmp(argument, "--help") == 0)) {
             return 1;
+        }
+        if (!end_options && strcmp(argument, "--analyze") == 0) {
+            *analyze = true;
+            continue;
         }
         if (!end_options && (strcmp(argument, "-o") == 0 ||
                              strcmp(argument, "--output") == 0)) {
@@ -2775,7 +3550,8 @@ int main(int argc, char **argv)
 {
     const char *input = NULL;
     const char *output = NULL;
-    int status = rc_arguments(argc, argv, &input, &output);
+    bool analyze = false;
+    int status = rc_arguments(argc, argv, &input, &output, &analyze);
 
     if (status == 1) {
         rc_usage(stdout, argv[0]);
@@ -2784,5 +3560,5 @@ int main(int argc, char **argv)
     if (status != 0) {
         return 2;
     }
-    return rc_compile_file(input, output) ? 0 : 1;
+    return rc_compile_file(input, output, analyze) ? 0 : 1;
 }

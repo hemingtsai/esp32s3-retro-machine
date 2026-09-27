@@ -94,6 +94,76 @@ expect_success() {
     fi
 }
 
+analyze_write() {
+    source=$1
+    output=$2
+    ANALYZE_STATUS=0
+    rm -f "$output"
+    if "$RETROCC" --analyze -o "$output" "$source" > "$TEST_ROOT/analyze.log" 2>&1; then
+        ANALYZE_STATUS=0
+    else
+        ANALYZE_STATUS=$?
+    fi
+    if [ ! -s "$output" ]; then
+        print_file "$TEST_ROOT/analyze.log" >&2
+        fail "analysis wrote no JSON for $source"
+    fi
+    if ! python3 -m json.tool "$output" > "$TEST_ROOT/analyze.pretty" 2>&1; then
+        print_file "$TEST_ROOT/analyze.pretty" >&2
+        fail "analysis produced invalid JSON for $source"
+    fi
+}
+
+analyze_query() {
+    output=$1
+    expression=$2
+    if ! result=$(python3 -c "import json,sys
+data = json.load(open(sys.argv[1]))
+print($expression)" "$output" 2> "$TEST_ROOT/analyze-query.log"); then
+        print_file "$TEST_ROOT/analyze-query.log" >&2
+        fail "analysis query failed: $expression"
+    fi
+    printf '%s' "$result"
+}
+
+expect_analyze() {
+    name=$1
+    source=$2
+    expression=$3
+    expected=$4
+    expected_status=${5:-0}
+    output=$TEST_ROOT/$name.json
+    analyze_write "$source" "$output"
+    if [ "$ANALYZE_STATUS" -ne "$expected_status" ]; then
+        print_file "$TEST_ROOT/analyze.log" >&2
+        fail "$name expected analysis exit $expected_status for $source, got $ANALYZE_STATUS"
+    fi
+    actual=$(analyze_query "$output" "$expression")
+    if [ "$actual" != "$expected" ]; then
+        fail "$name expected [$expected] got [$actual]"
+    fi
+}
+
+expect_analyze_failure() {
+    name=$1
+    source=$2
+    expected=$3
+    output=$TEST_ROOT/$name.json
+    analyze_write "$source" "$output"
+    if [ "$ANALYZE_STATUS" -ne 1 ]; then
+        fail "$name expected analysis exit 1 for $source, got $ANALYZE_STATUS"
+    fi
+    count=$(analyze_query "$output" "len(data['diagnostics'])")
+    if [ "$count" != "1" ]; then
+        fail "$name expected exactly 1 diagnostic got $count"
+    fi
+    message=$(analyze_query "$output" "data['diagnostics'][0]['message']")
+    case "$message" in
+        *"$expected"*) ;;
+        *) fail "$name expected diagnostic [$expected] got [$message]" ;;
+    esac
+}
+
 if [ -n "${RETROCC:-}" ]; then
     :
 else
@@ -134,6 +204,9 @@ printf '%s\n' 'void value;' 'u16 main(void) { return value; }' > "$TEST_ROOT/voi
 printf '%s\n' 'u16 main(void) { { u16 hidden = 7; } return hidden; }' > "$TEST_ROOT/expired-local.rc"
 printf '%s\n' 'u16 foo(void) { return 1; }' 'u16 FOO(void) { return 2; }' 'u16 main(void) { return foo(); }' > "$TEST_ROOT/case-collision.rc"
 printf '%s\n' 'u16 main(void) { return 0; }' '/*/' > "$TEST_ROOT/comment.rc"
+printf '%s\n' '// line comment' '/* block' '   comment */' 'u16 main(void)' '{' '    return 1;' '}' > "$TEST_ROOT/comments.rc"
+printf '%s\n' '// 中文注释' 'u16 main(void)' '{' '    return 1; // 结束' '}' > "$TEST_ROOT/comments-cjk.rc"
+printf '%s\n' 'u16 main(void) { u16 value = "quoted"; return value; }' > "$TEST_ROOT/quote.rc"
 printf '%s\n' 'u16 f(u16 a) { return a; }' 'u16 main(void) { return f(1,2,3,4,5,6,7); }' > "$TEST_ROOT/argument-limit.rc"
 printf '%s\n' 'void touch(void) { }' 'u16 main(void) { for (touch(); 0; ) { } return 0; }' > "$TEST_ROOT/for-init-void.rc"
 printf '%s\n' 'void touch(void) { }' 'u16 main(void) { for (; 0; touch()) { } return 0; }' > "$TEST_ROOT/for-step-void.rc"
@@ -212,6 +285,51 @@ else
     if [ "$status" -ne 2 ]; then
         fail "invalid CLI option returned $status"
     fi
+fi
+
+expect_analyze analyze-version "$PROGRAMS/arrays.rc" "data['version']" "1"
+expect_analyze analyze-clean "$PROGRAMS/arrays.rc" "len(data['diagnostics'])" "0"
+expect_analyze analyze-path "$PROGRAMS/arrays.rc" "data['path']" "$PROGRAMS/arrays.rc"
+expect_analyze analyze-symbols "$PROGRAMS/arrays.rc" \
+    "','.join(s['name'] + ':' + s['kind'] for s in data['symbols'])" \
+    "pick:function,value:parameter,main:function,values:local,index:local,sum:local"
+expect_analyze analyze-order "$PROGRAMS/arrays.rc" \
+    "str([s['offset'] for s in data['symbols']] == sorted(s['offset'] for s in data['symbols']))" \
+    "True"
+expect_analyze analyze-reference "$PROGRAMS/arrays.rc" \
+    "','.join(r['name'] for r in data['references'][:4])" "value,values,pick,pick"
+expect_analyze analyze-comments "$TEST_ROOT/comments.rc" \
+    "','.join(c['kind'] for c in data['comments'])" "line,block"
+expect_analyze analyze-comment-bytes "$TEST_ROOT/comments-cjk.rc" \
+    "'%d,%d' % (data['comments'][0]['length'], data['comments'][1]['length'])" "15,9"
+expect_analyze analyze-scopes "$PROGRAMS/arrays.rc" \
+    "','.join(str(s['endOffset'] > s['startOffset']) for s in data['scopes'])" "True,True,True,True"
+expect_analyze analyze-position "$TEST_ROOT/unknown.rc" \
+    "'%d:%d' % (data['diagnostics'][0]['line'], data['diagnostics'][0]['column'])" "1:25" 1
+expect_analyze analyze-range "$TEST_ROOT/unknown.rc" \
+    "'%d:%d' % (data['diagnostics'][0]['endLine'], data['diagnostics'][0]['endColumn'])" "1:32" 1
+expect_analyze analyze-loop-scope "$PROGRAMS/arrays.rc" \
+    "str([s['scope'] for s in data['symbols'] if s['name'] == 'index'][0])" "1"
+expect_analyze analyze-owner "$PROGRAMS/arrays.rc" \
+    "','.join(s['owner'] for s in data['symbols'] if s['kind'] == 'local')" "main,main,main"
+expect_analyze analyze-signature "$PROGRAMS/arrays.rc" \
+    "','.join(p['name'] + '@%d' % p['line'] for s in data['symbols'] if s['name'] == 'pick' for p in s['parameters'])" \
+    "value@1"
+expect_analyze analyze-tokens "$PROGRAMS/arrays.rc" \
+    "','.join(t['kind'] for t in data['tokens'][:4])" "type,identifier,punctuation,type"
+
+expect_analyze_failure analyze-unknown "$TEST_ROOT/unknown.rc" "unknown identifier 'missing'"
+expect_analyze_failure analyze-escape "$TEST_ROOT/quote.rc" "expected expression, found '\"'"
+expect_analyze_failure analyze-comment "$TEST_ROOT/comment.rc" "unterminated block comment"
+
+if "$RETROCC" --analyze -o - "$PROGRAMS/arrays.rc" > "$TEST_ROOT/analyze-stdout.json" 2> "$TEST_ROOT/analyze-stdout.log"; then
+    :
+else
+    print_file "$TEST_ROOT/analyze-stdout.log" >&2
+    fail "analysis to stdout failed"
+fi
+if ! python3 -m json.tool "$TEST_ROOT/analyze-stdout.json" > /dev/null 2>&1; then
+    fail "analysis to stdout produced invalid JSON"
 fi
 
 printf 'retrocc tests OK\n'
