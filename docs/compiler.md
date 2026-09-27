@@ -2,7 +2,7 @@
 
 `tools/retrocc.c` 是 Retro C 的宿主编译器。它使用 C11 实现，不依赖 LLVM、libc 之外的系统库，也不参与 ESP32-S3 固件构建。
 
-Retro C 的语言语法和语义见 [`docs/retro-c.md`](retro-c.md)，Retro 汇编器见 [`docs/assembler.md`](assembler.md)，指令系统见 [`docs/bytecodes.md`](bytecodes.md)。
+Retro C 的语言语法和语义见 [`docs/retro-c.md`](retro-c.md)，Retro 汇编器见 [`docs/assembler.md`](assembler.md)，指令系统见 [`docs/bytecodes.md`](bytecodes.md)，编辑器支持见 [`docs/lsp.md`](lsp.md)。
 
 ## 1. 工具职责
 
@@ -49,7 +49,7 @@ mkdir -p build
 ## 3. 命令行
 
 ```text
-retrocc [-h] -o OUTPUT INPUT
+retrocc [-h] [--analyze] -o OUTPUT INPUT
 ```
 
 参数：
@@ -57,7 +57,8 @@ retrocc [-h] -o OUTPUT INPUT
 | 参数 | 含义 |
 | --- | --- |
 | `INPUT` | Retro C 源文件 |
-| `-o OUTPUT`, `--output OUTPUT` | 汇编输出文件，必需 |
+| `-o OUTPUT`, `--output OUTPUT` | 输出文件，必需；为 `-` 时写到标准输出 |
+| `--analyze` | 分析模式，输出词法、符号和诊断的 JSON，替代汇编文本 |
 | `-h`, `--help` | 显示帮助并返回 0 |
 | `--` | 后续参数作为普通路径处理 |
 
@@ -82,6 +83,29 @@ program.rc:7:20: error: function 'add' expects 2 arguments, got 1
 ```
 
 词法、语义和布局失败时不会创建输出文件。编译器先在内存中完成全部生成和布局检查，成功后才打开输出路径；如果实际写入或关闭文件失败，仍可能留下已创建或不完整的输出文件。
+
+### 3.1 分析模式
+
+`--analyze` 供 [`docs/lsp.md`](lsp.md) 的语言服务器使用。它执行同样的词法、语义和
+代码生成流程，但不输出汇编文本，而是输出一个 JSON 对象，行列和偏移与普通诊断一致，
+偏移为 0 起始的字节位置：
+
+```text
+retrocc --analyze -o - program.rc
+```
+
+| 字段 | 内容 |
+| --- | --- |
+| `version` | 输出格式版本，当前为 `1` |
+| `path` | 输入路径 |
+| `diagnostics` | 最多一条诊断，含 `severity`、`message`、`offset`、`endOffset`、`line`、`column`、`endLine`、`endColumn` |
+| `comments` | 注释区间，`kind` 为 `line` 或 `block` |
+| `tokens` | 词法单元，`kind` 为 `type`、`keyword`、`identifier`、`number`、`operator`、`punctuation` 或 `unknown` |
+| `symbols` | 函数、全局变量、局部变量和参数，含类型、数组长度、声明范围、所属函数和作用域索引 |
+| `references` | 解析成功的标识符引用位置 |
+| `scopes` | 函数体、`for` 语句和花括号块的区间 |
+
+分析模式总是写出 JSON，即使存在诊断；此时退出码为 `1`，标准错误保持安静。
 
 ## 4. 最小流水线
 
@@ -373,7 +397,9 @@ sh tests/run_tests.sh
 3. 严格构建 Retro C 编译器；
 4. Retro C 正向端到端测试；
 5. Retro C 负向诊断测试；
-6. 现有模拟器、UI、控制流和汇编 e2e 测试。
+6. 编译 Retro C 示例并校验运行结果；
+7. 严格构建语言服务器并驱动 JSON-RPC 场景；
+8. 现有模拟器、UI、控制流和汇编 e2e 测试。
 
 单独运行编译器测试：
 
@@ -433,10 +459,14 @@ rm -rf "$build_dir"
 mkdir -p build
 cc -std=c11 -Wall -Wextra -Werror -Wpedantic tools/retrocc.c -o build/retrocc
 build/retrocc examples/retro-c/fibonacci.rc -o build/fibonacci.asm
+cc -std=c11 -Wall -Wextra -Werror -Wpedantic tools/assembler.c -o build/assembler
+build/assembler build/fibonacci.asm -o build/fibonacci.bin
 ```
 
 `sh tests/test_examples.sh ASSEMBLER BUILD_DIR` 会编译、汇编、运行全部示例并校验 `RS` 与停机状态；
 `sh tests/run_tests.sh` 会自动包含这一步。
+
+在编辑器中打开这些示例需要语言服务器，说明见 [`docs/lsp.md`](lsp.md)。
 
 ## 12. 维护
 新语法
@@ -450,6 +480,7 @@ build/retrocc examples/retro-c/fibonacci.rc -o build/fibonacci.asm
 5. 增加正向 Machine e2e；
 6. 增加非法输入和行列诊断；
 7. 更新语言规范、ABI 文档和限制；
-8. 运行严格编译、完整测试和 ASan/UBSan。
+8. 如果新增 token 或符号种类，同步更新 `--analyze` 的 JSON 和 `docs/lsp.md` 的高亮图例；
+9. 运行严格编译、完整测试和 ASan/UBSan。
 
 如果新表达式需要跨调用保存临时值，应复用 `temporary_depth` 和栈临时区，不要假定 `R0` 到 `R7` 在函数调用后保持不变。

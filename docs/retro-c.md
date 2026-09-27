@@ -2,7 +2,7 @@
 
 Retro C 是本项目 16-bit Retro CPU 使用的一门小型 C 方言。它保留 C 的表达式、函数和控制流结构，但只提供能够由当前指令集直接、可靠实现的类型与操作。
 
-本文定义语言本身。构建和命令行说明见 [`docs/compiler.md`](compiler.md)，指令编码见 [`docs/bytecodes.md`](bytecodes.md)。
+本文定义语言本身。构建和命令行说明见 [`docs/compiler.md`](compiler.md)，指令编码见 [`docs/bytecodes.md`](bytecodes.md)，编辑器支持见 [`docs/lsp.md`](lsp.md)。
 
 ## 1. 设计目标
 

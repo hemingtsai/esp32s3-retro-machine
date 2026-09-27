@@ -1,0 +1,14 @@
+{
+  "retro-c.lsp": {
+    "command": "build/retrolsp",
+    "args": ["--stdio", "--compiler", "build/retrocc"],
+    "filetypes": ["retro-c"],
+    "extensions": [".rc"],
+    "initializationOptions": {
+      "debounce": 200
+    }
+  },
+  "files.associations": {
+    "*.rc": "retro-c"
+  }
+}
